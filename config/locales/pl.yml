@@ -138,6 +138,8 @@ pl:
         circular_dependency: "Ta relacja może wytworzyć zapętloną zależność"
         cant_link_an_issue_with_a_descendant: "Zagadnienie nie może zostać powiązane z jednym z własnych podzagadnień"
         earlier_than_minimum_start_date: "nie może być wcześniej niż %{date} z powodu poprzedających zagadnień"
+        not_a_regexp: "is not a valid regular expression"
+        open_issue_with_closed_parent: "An open issue cannot be attached to a closed parent task"
 
   support:
     array:
@@ -926,10 +928,8 @@ pl:
   project_module_calendar: Kalendarz
   button_edit_associated_wikipage: "Edytuj powiązaną stronę Wiki: %{page_title}"
   field_text: Text field
-  label_user_mail_option_only_owner: Tylko to, czego jestem właścicielem (autorem)
   setting_default_notification_option: Domyślna opcja powiadomień
   label_user_mail_option_only_my_events: "Tylko to, co obserwuję lub w czym biorę udział"
-  label_user_mail_option_only_assigned: "Tylko to, do czego jestem przypisany"
   label_user_mail_option_none: "Brak powiadomień"
   field_member_of_group: Grupa osoby przypisanej
   field_assigned_to_role: Rola osoby przypisanej
@@ -1221,3 +1221,26 @@ pl:
   label_new_project_issue_tab_enabled: Display the "New issue" tab
   setting_new_item_menu_tab: Project menu tab for creating new objects
   label_new_object_tab_enabled: Display the "+" drop-down
+  error_no_projects_with_tracker_allowed_for_new_issue: There are no projects with trackers
+    for which you can create an issue
+  field_textarea_font: Font used for text areas
+  label_font_default: Default font
+  label_font_monospace: Monospaced font
+  label_font_proportional: Proportional font
+  setting_timespan_format: Time span format
+  label_table_of_contents: Table of contents
+  setting_commit_logs_formatting: Apply text formatting to commit messages
+  setting_mail_handler_enable_regex_delimiters: Enable regular expressions
+  error_move_of_child_not_possible: 'Subtask %{child} could not be moved to the new
+    project: %{errors}'
+  error_cannot_reassign_time_entries_to_an_issue_about_to_be_deleted: Spent time cannot
+    be reassigned to an issue that is about to be deleted
+  setting_timelog_required_fields: Required fields for time logs
+  label_attribute_of_object: '%{object_name}''s %{name}'
+  label_user_mail_option_only_assigned: Only for things I watch or I am assigned to
+  label_user_mail_option_only_owner: Only for things I watch or I am the owner of
+  warning_fields_cleared_on_bulk_edit: Changes will result in the automatic deletion
+    of values from one or more fields on the selected objects
+  field_updated_by: Updated by
+  field_last_updated_by: Last updated by
+  field_full_width_layout: Full width layout

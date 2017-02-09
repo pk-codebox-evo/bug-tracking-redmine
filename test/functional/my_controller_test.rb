@@ -52,7 +52,7 @@ class MyControllerTest < Redmine::ControllerTest
   end
 
   def test_page_with_all_blocks
-    blocks = MyController::BLOCKS.keys
+    blocks = Redmine::MyPage.blocks.keys
     preferences = User.find(2).pref
     preferences[:my_page_layout] = {'top' => blocks}
     preferences.save!
@@ -219,6 +219,18 @@ class MyControllerTest < Redmine::ControllerTest
     assert_select_email do
       assert_select 'a[href^=?]', 'http://localhost:3000/my/password', :text => 'Change password'
     end
+  end
+
+  def test_update_page_with_blank_preferences
+    user = User.generate!(:language => 'en')
+    @request.session[:user_id] = user.id
+
+    xhr :post, :update_page, :settings => {'timelog' => {'days' => '14'}}
+    assert_response :success
+    assert_include '$("#block-timelog").html(', response.body
+    assert_include '14 days', response.body
+
+    assert_equal({:days => "14"}, user.reload.pref.my_page_settings('timelog'))
   end
 
   def test_page_layout

@@ -29,6 +29,7 @@ module Redmine
           self.customizable_options = options
           has_many :custom_values, lambda {includes(:custom_field).order("#{CustomField.table_name}.position")},
                                    :as => :customized,
+                                   :inverse_of => :customized,
                                    :dependent => :delete_all,
                                    :validate => false
 
@@ -68,16 +69,7 @@ module Redmine
           custom_field_values.each do |custom_field_value|
             key = custom_field_value.custom_field_id.to_s
             if values.has_key?(key)
-              value = values[key]
-              if value.is_a?(Array)
-                value = value.reject(&:blank?).map(&:to_s).uniq
-                if value.empty?
-                  value << ''
-                end
-              else
-                value = value.to_s
-              end
-              custom_field_value.value = value
+              custom_field_value.value = values[key]
             end
           end
           @custom_field_values_changed = true
@@ -93,11 +85,11 @@ module Redmine
               if values.empty?
                 values << custom_values.build(:customized => self, :custom_field => field)
               end
-              x.value = values.map(&:value)
+              x.instance_variable_set("@value", values.map(&:value))
             else
               cv = custom_values.detect { |v| v.custom_field == field }
               cv ||= custom_values.build(:customized => self, :custom_field => field)
-              x.value = cv.value
+              x.instance_variable_set("@value", cv.value)
             end
             x.value_was = x.value.dup if x.value
             x

@@ -29,6 +29,7 @@ class RepositoriesController < ApplicationController
   default_search_scope :changesets
 
   before_action :find_project_by_project_id, :only => [:new, :create]
+  before_action :build_new_repository_from_params, :only => [:new, :create]
   before_action :find_repository, :only => [:edit, :update, :destroy, :committers]
   before_action :find_project_repository, :except => [:new, :create, :edit, :update, :destroy, :committers]
   before_action :find_changeset, :only => [:revision, :add_related_issue, :remove_related_issue]
@@ -38,21 +39,11 @@ class RepositoriesController < ApplicationController
   rescue_from Redmine::Scm::Adapters::CommandFailed, :with => :show_error_command_failed
 
   def new
-    scm = params[:repository_scm] || (Redmine::Scm::Base.all & Setting.enabled_scm).first
-    @repository = Repository.factory(scm)
     @repository.is_default = @project.repository.nil?
-    @repository.project = @project
   end
 
   def create
-    attrs = pickup_extra_info
-    @repository = Repository.factory(params[:repository_scm])
-    @repository.safe_attributes = params[:repository]
-    if attrs[:attrs_extra].keys.any?
-      @repository.merge_extra_info(attrs[:attrs_extra])
-    end
-    @repository.project = @project
-    if request.post? && @repository.save
+    if @repository.save
       redirect_to settings_project_path(@project, :tab => 'repositories')
     else
       render :action => 'new'
@@ -63,32 +54,13 @@ class RepositoriesController < ApplicationController
   end
 
   def update
-    attrs = pickup_extra_info
-    @repository.safe_attributes = attrs[:attrs]
-    if attrs[:attrs_extra].keys.any?
-      @repository.merge_extra_info(attrs[:attrs_extra])
-    end
-    @repository.project = @project
+    @repository.safe_attributes = params[:repository]
     if @repository.save
       redirect_to settings_project_path(@project, :tab => 'repositories')
     else
       render :action => 'edit'
     end
   end
-
-  def pickup_extra_info
-    p       = {}
-    p_extra = {}
-    params[:repository].each do |k, v|
-      if k =~ /^extra_/
-        p_extra[k] = v
-      else
-        p[k] = v
-      end
-    end
-    {:attrs => p, :attrs_extra => p_extra}
-  end
-  private :pickup_extra_info
 
   def committers
     @committers = @repository.committers
@@ -308,6 +280,18 @@ class RepositoriesController < ApplicationController
 
   private
 
+  def build_new_repository_from_params
+    scm = params[:repository_scm] || (Redmine::Scm::Base.all & Setting.enabled_scm).first
+    unless @repository = Repository.factory(scm)
+      render_404
+      return
+    end
+
+    @repository.project = @project
+    @repository.safe_attributes = params[:repository]
+    @repository
+  end
+
   def find_repository
     @repository = Repository.find(params[:id])
     @project = @repository.project
@@ -446,7 +430,7 @@ class RepositoriesController < ApplicationController
   end
 
   def disposition(path)
-    if Redmine::MimeType.is_type?('image', @path) || Redmine::MimeType.of(@path) == "application/pdf"
+    if Redmine::MimeType.of(@path) == "application/pdf"
       'inline'
     else
       'attachment'

@@ -62,10 +62,12 @@ class WikiController < ApplicationController
 
   def new
     @page = WikiPage.new(:wiki => @wiki, :title => params[:title])
-    unless User.current.allowed_to?(:edit_wiki_pages, @project) && editable?
+    unless User.current.allowed_to?(:edit_wiki_pages, @project)
       render_403
+      return
     end
     if request.post?
+      @page.title = '' unless editable?
       @page.validate
       if @page.errors[:title].blank?
         path = project_wiki_page_path(@project, @page.title)
@@ -93,6 +95,9 @@ class WikiController < ApplicationController
       end
       return
     end
+
+    call_hook :controller_wiki_show_before_render, content: @content, format: params[:format]
+
     if User.current.allowed_to?(:export_wiki_pages, @project)
       if params[:format] == 'pdf'
         send_file_headers! :type => 'application/pdf', :filename => "#{@page.title}.pdf"

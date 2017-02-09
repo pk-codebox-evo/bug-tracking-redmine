@@ -611,7 +611,7 @@ class UserTest < ActiveSupport::TestCase
     @jsmith.save!
 
     user = User.try_to_login("jsmith", "jsmith")
-    assert_equal nil, user
+    assert_nil user
   end
 
   def test_try_to_login_with_locked_user_and_not_active_only_should_return_user
@@ -645,11 +645,11 @@ class UserTest < ActiveSupport::TestCase
       auth_source = AuthSourceLdap.find(1)
       AuthSource.any_instance.stubs(:initialize_ldap_con).raises(Net::LDAP::LdapError, 'Cannot connect')
 
-      assert_equal nil, User.try_to_login('edavis', 'wrong')
+      assert_nil User.try_to_login('edavis', 'wrong')
     end
 
     test "#try_to_login using LDAP" do
-      assert_equal nil, User.try_to_login('edavis', 'wrong')
+      assert_nil User.try_to_login('edavis', 'wrong')
     end
 
     test "#try_to_login using LDAP binding with user's account" do
@@ -875,7 +875,6 @@ class UserTest < ActiveSupport::TestCase
 
   def test_roles_for_project_with_non_member_with_private_project_should_return_no_roles
     Project.find(1).update_attribute :is_public, false
-  
     roles = User.find(8).roles_for_project(Project.find(1))
     assert_equal [], roles.map(&:name)
   end
@@ -903,7 +902,6 @@ class UserTest < ActiveSupport::TestCase
 
   def test_roles_for_project_with_anonymous_with_private_project_should_return_no_roles
     Project.find(1).update_attribute :is_public, false
-  
     roles = User.anonymous.roles_for_project(Project.find(1))
     assert_equal [], roles.map(&:name)
   end
@@ -1140,6 +1138,7 @@ class UserTest < ActiveSupport::TestCase
     project = Project.find(1)
     author = User.generate!
     assignee = User.generate!
+    Member.create!(:user => assignee, :project => project, :role_ids => [1])
     member = User.generate!
     Member.create!(:user => member, :project => project, :role_ids => [1])
     issue = Issue.generate!(:project => project, :assigned_to => assignee, :author => author)
@@ -1160,7 +1159,9 @@ class UserTest < ActiveSupport::TestCase
 
   def test_notify_about_issue_for_previous_assignee
     assignee = User.generate!(:mail_notification => 'only_assigned')
+    Member.create!(:user => assignee, :project_id => 1, :role_ids => [1])
     new_assignee = User.generate!(:mail_notification => 'only_assigned')
+    Member.create!(:user => new_assignee, :project_id => 1, :role_ids => [1])
     issue = Issue.generate!(:assigned_to => assignee)
 
     assert assignee.notify_about?(issue)

@@ -31,6 +31,17 @@ class Member < ActiveRecord::Base
 
   scope :active, lambda { joins(:principal).where(:users => {:status => Principal::STATUS_ACTIVE})}
 
+	# Sort by first role and principal
+  scope :sorted, lambda {
+    includes(:member_roles, :roles, :principal).
+      reorder("#{Role.table_name}.position").
+      order(Principal.fields_for_order_statement)
+  }
+  scope :sorted_by_project, lambda {
+    includes(:project).
+      reorder("#{Project.table_name}.lft")
+  }
+
   alias :base_reload :reload
   def reload(*args)
     @managed_roles = nil
@@ -128,7 +139,7 @@ class Member < ActiveRecord::Base
     if principal.is_a?(Group)
       !user.nil? && user.groups.include?(principal)
     else
-      self.user == user
+      self.principal == user
     end
   end
 

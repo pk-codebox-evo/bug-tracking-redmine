@@ -20,12 +20,12 @@
 require File.expand_path('../../../test_helper', __FILE__)
 
 class ApplicationHelperTest < Redmine::HelperTest
-  include Redmine::I18n
   include ERB::Util
   include Rails.application.routes.url_helpers
 
-  fixtures :projects, :roles, :enabled_modules, :users,
-           :email_addresses,
+  fixtures :projects, :enabled_modules,
+           :users, :email_addresses,
+           :members, :member_roles, :roles,
            :repositories, :changesets,
            :projects_trackers,
            :trackers, :issue_statuses, :issues, :versions, :documents,
@@ -167,6 +167,12 @@ RAW
       assert_include %(<img src="/attachments/download/#{attachment.id}/caf%C3%A9.jpg" alt="" />),
         textilizable("![](café.jpg)", :attachments => [attachment])
     end
+  end
+
+  def test_attached_images_with_hires_naming
+    attachment = Attachment.generate!(:filename => 'image@2x.png')
+      assert_equal %(<p><img src="/attachments/download/#{attachment.id}/image@2x.png" srcset="/attachments/download/#{attachment.id}/image@2x.png 2x" alt="" /></p>),
+        textilizable("!image@2x.png!", :attachments => [attachment])
   end
 
   def test_attached_images_filename_extension
@@ -665,6 +671,7 @@ RAW
   end
 
   def test_wiki_links
+    User.current = User.find_by_login('jsmith')
     russian_eacape = CGI.escape(@russian_test)
     to_test = {
       '[[CookBook documentation]]' =>
@@ -746,6 +753,9 @@ RAW
       # project does not exist
       '[[unknowproject:Start]]' => '[[unknowproject:Start]]',
       '[[unknowproject:Start|Page title]]' => '[[unknowproject:Start|Page title]]',
+      # missing permission to view wiki in project
+      '[[private-child:]]' => '[[private-child:]]',
+      '[[private-child:Wiki]]' => '[[private-child:Wiki]]',
     }
     @project = Project.find(1)
     to_test.each { |text, result| assert_equal "<p>#{result}</p>", textilizable(text) }
@@ -1019,7 +1029,7 @@ EXPECTED
     assert_equal 'test1/test2', to_path_param('test1/test2')
     assert_equal 'test1/test2', to_path_param('/test1/test2/')
     assert_equal 'test1/test2', to_path_param('//test1/test2/')
-    assert_equal nil, to_path_param('/')
+    assert_nil to_path_param('/')
   end
 
   def test_wiki_links_in_tables
@@ -1091,6 +1101,8 @@ EXPECTED
   end
 
   def test_table_of_content
+    set_language_if_valid 'en'
+
     raw = <<-RAW
 {{toc}}
 
@@ -1123,6 +1135,7 @@ h2. "Project Name !/attachments/1234/logo_small.gif! !/attachments/5678/logo_2.p
 RAW
 
     expected =  '<ul class="toc">' +
+                  '<li><strong>Table of contents</strong></li>' +
                   '<li><a href="#Title">Title</a>' +
                     '<ul>' +
                       '<li><a href="#Subtitle-with-a-Wiki-link">Subtitle with a Wiki link</a></li>' +
@@ -1152,6 +1165,8 @@ RAW
   end
 
   def test_table_of_content_should_generate_unique_anchors
+    set_language_if_valid 'en'
+
     raw = <<-RAW
 {{toc}}
 
@@ -1163,6 +1178,7 @@ h2. Subtitle
 RAW
 
     expected =  '<ul class="toc">' +
+                  '<li><strong>Table of contents</strong></li>' +
                   '<li><a href="#Title">Title</a>' +
                     '<ul>' +
                       '<li><a href="#Subtitle">Subtitle</a></li>' +
@@ -1179,6 +1195,8 @@ RAW
   end
 
   def test_table_of_content_should_contain_included_page_headings
+    set_language_if_valid 'en'
+
     raw = <<-RAW
 {{toc}}
 
@@ -1188,6 +1206,7 @@ h1. Included
 RAW
 
     expected = '<ul class="toc">' +
+               '<li><strong>Table of contents</strong></li>' +
                '<li><a href="#Included">Included</a></li>' +
                '<li><a href="#Child-page-1">Child page 1</a></li>' +
                '</ul>'
@@ -1542,5 +1561,25 @@ RAW
   def test_back_url_should_remove_utf8_checkmark_from_referer
     stubs(:request).returns(stub(:env => {'HTTP_REFERER' => "/path?utf8=\u2713&foo=bar"}))
     assert_equal "/path?foo=bar", back_url
+  end
+
+  def test_hours_formatting
+    set_language_if_valid 'en'
+
+    with_settings :timespan_format => 'minutes' do
+      assert_equal '0:45', format_hours(0.75)
+      assert_equal '0:45 h', l_hours_short(0.75)
+      assert_equal '0:45 hour', l_hours(0.75)
+    end
+    with_settings :timespan_format => 'decimal' do
+      assert_equal '0.75', format_hours(0.75)
+      assert_equal '0.75 h', l_hours_short(0.75)
+      assert_equal '0.75 hour', l_hours(0.75)
+    end
+  end
+
+  def test_html_hours
+    assert_equal '<span class="hours hours-int">0</span><span class="hours hours-dec">:45</span>', html_hours('0:45')
+    assert_equal '<span class="hours hours-int">0</span><span class="hours hours-dec">.75</span>', html_hours('0.75')
   end
 end

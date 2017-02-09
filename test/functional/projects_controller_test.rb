@@ -52,6 +52,12 @@ class ProjectsControllerTest < Redmine::ControllerTest
     assert_select 'feed>entry', :count => Project.visible(User.current).count
   end
 
+  def test_index_js
+    xhr :get, :index, :format => 'js', :q => 'coo'
+    assert_response :success
+    assert_equal 'text/javascript', response.content_type
+  end
+
   test "#index by non-admin user with view_time_entries permission should show overall spent time link" do
     @request.session[:user_id] = 3
     get :index
@@ -108,6 +114,22 @@ class ProjectsControllerTest < Redmine::ControllerTest
       assert_select 'option[value="1"][selected=selected]'
       # no empty value
       assert_select 'option[value=""]', 0
+    end
+  end
+
+  def test_new_by_non_admin_should_display_modules_if_default_role_is_allowed_to_select_modules
+    Role.non_member.add_permission!(:add_project)
+    default_role = Role.generate!(:permissions => [:view_issues])
+    user = User.generate!
+    @request.session[:user_id] = user.id
+
+    with_settings :new_project_user_role_id => default_role.id.to_s do
+      get :new
+      assert_select 'input[name=?]', 'project[enabled_module_names][]', 0
+
+      default_role.add_permission!(:select_project_modules)
+      get :new
+      assert_select 'input[name=?]', 'project[enabled_module_names][]'
     end
   end
 
@@ -275,6 +297,34 @@ class ProjectsControllerTest < Redmine::ControllerTest
     end
     assert_response :success
     assert_select_error /Subproject of is invalid/
+  end
+
+  def test_create_by_non_admin_should_accept_modules_if_default_role_is_allowed_to_select_modules
+    Role.non_member.add_permission!(:add_project)
+    default_role = Role.generate!(:permissions => [:view_issues, :add_project])
+    user = User.generate!
+    @request.session[:user_id] = user.id
+
+    with_settings :new_project_user_role_id => default_role.id.to_s, :default_projects_modules => %w(news files) do
+      project = new_record(Project) do
+        post :create, :project => {
+            :name => "blog1",
+            :identifier => "blog1",
+            :enabled_module_names => ["issue_tracking", "repository"]
+          }
+      end
+      assert_equal %w(files news), project.enabled_module_names.sort
+
+      default_role.add_permission!(:select_project_modules)
+      project = new_record(Project) do
+        post :create, :project => {
+            :name => "blog2",
+            :identifier => "blog2",
+            :enabled_module_names => ["issue_tracking", "repository"]
+          }
+      end
+      assert_equal %w(issue_tracking repository), project.enabled_module_names.sort
+    end
   end
 
   def test_create_subproject_with_inherit_members_should_inherit_members
@@ -445,6 +495,48 @@ class ProjectsControllerTest < Redmine::ControllerTest
     assert_select 'form[action=?]', '/projects/ecookbook/wiki' do
       assert_select 'input[name=?]', 'wiki[start_page]'
     end
+  end
+
+  def test_settings_should_accept_version_status_filter
+    @request.session[:user_id] = 2
+
+    get :settings, :id => 'ecookbook', :tab => 'versions', :version_status => 'locked'
+    assert_response :success
+
+    assert_select 'select[name=version_status]' do
+      assert_select 'option[value=locked][selected=selected]'
+    end
+    assert_select 'table.versions tbody' do
+      assert_select 'tr', 1
+      assert_select 'td.name', :text => '1.0'
+    end
+    assert_select 'a#tab-versions[href=?]', '/projects/ecookbook/settings/versions?version_status=locked'
+  end
+
+  def test_settings_should_accept_version_name_filter
+    @request.session[:user_id] = 2
+
+    get :settings, :id => 'ecookbook', :tab => 'versions', :version_status => '', :version_name => '.1'
+    assert_response :success
+
+    assert_select 'input[name=version_name][value=?]', '.1'
+    assert_select 'table.versions tbody' do
+      assert_select 'tr', 1
+      assert_select 'td.name', :text => '0.1'
+    end
+    assert_select 'a#tab-versions[href=?]', '/projects/ecookbook/settings/versions?version_name=.1&version_status='
+  end
+
+  def test_settings_should_show_locked_members
+    user = User.generate!
+    member = User.add_to_project(user, Project.find(1))
+    user.lock!
+    assert user.reload.locked?
+    @request.session[:user_id] = 2
+
+    get :settings, :id => 'ecookbook', :tab => 'members'
+    assert_response :success
+    assert_select "tr#member-#{member.id}"
   end
 
   def test_update
@@ -651,6 +743,16 @@ class ProjectsControllerTest < Redmine::ControllerTest
     post :copy, :id => 1, :project => {:name => 'Copy', :identifier => ''}
     assert_response :success
     assert_select_error /Identifier cannot be blank/
+  end
+
+  def test_jump_without_project_id_should_redirect_to_active_tab
+    get :index, :jump => 'issues'
+    assert_redirected_to '/issues'
+  end
+
+  def test_jump_should_not_redirect_to_unknown_tab
+    get :index, :jump => 'foobar'
+    assert_response :success
   end
 
   def test_jump_should_redirect_to_active_tab

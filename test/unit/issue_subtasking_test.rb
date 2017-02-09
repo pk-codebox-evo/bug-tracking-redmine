@@ -108,6 +108,30 @@ class IssueSubtaskingTest < ActiveSupport::TestCase
     end
   end
 
+  def test_parent_priority_should_be_set_to_default_when_all_children_are_closed
+    with_settings :parent_issue_priority => 'derived' do
+      parent = Issue.generate!
+      child = parent.generate_child!(:priority => IssuePriority.find_by_name('High'))
+      assert_equal 'High', parent.reload.priority.name
+      child.status = IssueStatus.where(:is_closed => true).first
+      child.save!
+      assert_equal 'Normal', parent.reload.priority.name
+    end
+  end
+
+  def test_parent_priority_should_be_left_unchanged_when_all_children_are_closed_and_no_default_priority
+    IssuePriority.update_all :is_default => false
+
+    with_settings :parent_issue_priority => 'derived' do
+      parent = Issue.generate!(:priority => IssuePriority.find_by_name('Normal'))
+      child = parent.generate_child!(:priority => IssuePriority.find_by_name('High'))
+      assert_equal 'High', parent.reload.priority.name
+      child.status = IssueStatus.where(:is_closed => true).first
+      child.save!
+      assert_equal 'High', parent.reload.priority.name
+    end
+  end
+
   def test_parent_done_ratio_should_be_read_only_with_parent_issue_done_ratio_set_to_derived
     with_settings :parent_issue_done_ratio => 'derived' do
       issue = Issue.generate_with_child!
@@ -140,6 +164,26 @@ class IssueSubtaskingTest < ActiveSupport::TestCase
       assert_equal 20, parent.reload.done_ratio
       parent.generate_child!(:estimated_hours => 20, :done_ratio => 50)
       assert_equal (50 * 20 + 20 * 10) / 30, parent.reload.done_ratio
+    end
+  end
+
+  def test_parent_done_ratio_should_be_weighted_by_estimated_times_if_any_with_grandchildren
+    # parent
+    #   child 1 (2h estd, 0% done)
+    #   child 2 (no estd)
+    #     child a (2h estd, 50% done)
+    #     child b (2h estd, 50% done)
+    #
+    # => parent should have a calculated progress of 33%
+    #
+    with_settings :parent_issue_done_ratio => 'derived' do
+      parent = Issue.generate!
+      parent.generate_child!(:estimated_hours => 2, :done_ratio => 0)
+      child = parent.generate_child!
+      child.generate_child!(:estimated_hours => 2, :done_ratio => 50)
+      child.generate_child!(:estimated_hours => 2, :done_ratio => 50)
+      assert_equal 50, child.reload.done_ratio
+      assert_equal 33, parent.reload.done_ratio
     end
   end
 
@@ -285,5 +329,14 @@ class IssueSubtaskingTest < ActiveSupport::TestCase
     assert_equal 5, parent.reload.total_estimated_hours
     parent.generate_child!(:estimated_hours => 7)
     assert_equal 12, parent.reload.total_estimated_hours
+  end
+
+  def test_open_issue_with_closed_parent_should_not_validate
+    parent = Issue.generate!(:status_id => 5)
+    child = Issue.generate!
+
+    child.parent_issue_id = parent.id
+    assert !child.save
+    assert_include I18n.t("activerecord.errors.messages.open_issue_with_closed_parent"), child.errors.full_messages
   end
 end

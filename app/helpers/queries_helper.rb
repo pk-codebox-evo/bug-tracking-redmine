@@ -28,9 +28,11 @@ module QueriesHelper
         group = :label_relations
       elsif field_options[:type] == :tree
         group = query.is_a?(IssueQuery) ? :label_relations : nil
+      elsif field =~ /^cf_\d+\./
+        group = (field_options[:through] || field_options[:field]).try(:name)
       elsif field =~ /^(.+)\./
         # association filters
-        group = "field_#{$1}"
+        group = "field_#{$1}".to_sym
       elsif %w(member_of_group assigned_to_role).include?(field)
         group = :field_assigned_to
       elsif field_options[:type] == :date_past || field_options[:type] == :date
@@ -43,12 +45,12 @@ module QueriesHelper
       end
     end
     # Don't group dates if there's only one (eg. time entries filters)
-    if grouped[:label_date].try(:size) == 1 
+    if grouped[:label_date].try(:size) == 1
       ungrouped << grouped.delete(:label_date).first
     end
     s = options_for_select([[]] + ungrouped)
     if grouped.present?
-      localized_grouped = grouped.map {|k,v| [l(k), v]}
+      localized_grouped = grouped.map {|k,v| [k.is_a?(Symbol) ? l(k) : k.to_s, v]}
       s << grouped_options_for_select(localized_grouped)
     end
     s
@@ -149,7 +151,12 @@ module QueriesHelper
 
   def total_tag(column, value)
     label = content_tag('span', "#{column.caption}:")
-    value = content_tag('span', format_object(value), :class => 'value')
+    value = if [:hours, :spent_hours, :total_spent_hours, :estimated_hours].include? column.name
+      format_hours(value)
+    else
+      format_object(value)
+    end
+    value = content_tag('span', value, :class => 'value')
     content_tag('span', label + " " + value, :class => "total-for-#{column.name.to_s.dasherize}")
   end
 
@@ -159,42 +166,48 @@ module QueriesHelper
                       content_tag('th', h(column.caption))
   end
 
-  def column_content(column, issue)
-    value = column.value_object(issue)
+  def column_content(column, item)
+    value = column.value_object(item)
     if value.is_a?(Array)
-      value.collect {|v| column_value(column, issue, v)}.compact.join(', ').html_safe
+      value.collect {|v| column_value(column, item, v)}.compact.join(', ').html_safe
     else
-      column_value(column, issue, value)
+      column_value(column, item, value)
     end
   end
-  
-  def column_value(column, issue, value)
+
+  def column_value(column, item, value)
     case column.name
     when :id
-      link_to value, issue_path(issue)
+      link_to value, issue_path(item)
     when :subject
-      link_to value, issue_path(issue)
+      link_to value, issue_path(item)
     when :parent
       value ? (value.visible? ? link_to_issue(value, :subject => false) : "##{value.id}") : ''
     when :description
-      issue.description? ? content_tag('div', textilizable(issue, :description), :class => "wiki") : ''
+      item.description? ? content_tag('div', textilizable(item, :description), :class => "wiki") : ''
     when :done_ratio
       progress_bar(value)
     when :relations
       content_tag('span',
-        value.to_s(issue) {|other| link_to_issue(other, :subject => false, :tracker => false)}.html_safe,
-        :class => value.css_classes_for(issue))
+        value.to_s(item) {|other| link_to_issue(other, :subject => false, :tracker => false)}.html_safe,
+        :class => value.css_classes_for(item))
+    when :hours, :estimated_hours
+      format_hours(value)
+    when :spent_hours
+      link_to_if(value > 0, format_hours(value), project_time_entries_path(item.project, :issue_id => "#{item.id}"))
+    when :total_spent_hours
+      link_to_if(value > 0, format_hours(value), project_time_entries_path(item.project, :issue_id => "~#{item.id}"))
     else
       format_object(value)
     end
   end
 
-  def csv_content(column, issue)
-    value = column.value_object(issue)
+  def csv_content(column, item)
+    value = column.value_object(item)
     if value.is_a?(Array)
-      value.collect {|v| csv_value(column, issue, v)}.compact.join(', ')
+      value.collect {|v| csv_value(column, item, v)}.compact.join(', ')
     else
-      csv_value(column, issue, value)
+      csv_value(column, item, value)
     end
   end
 
@@ -218,13 +231,7 @@ module QueriesHelper
   end
 
   def query_to_csv(items, query, options={})
-    options ||= {}
-    columns = (options[:columns] == 'all' ? query.available_inline_columns : query.inline_columns)
-    query.available_block_columns.each do |column|
-      if options[column.name].present?
-        columns << column
-      end
-    end
+    columns = query.columns
 
     Redmine::Export::CSV.generate do |csv|
       # csv header fields
@@ -262,16 +269,19 @@ module QueriesHelper
     end
   end
 
-  def retrieve_query_from_session
-    if session[:query]
-      if session[:query][:id]
-        @query = IssueQuery.find_by_id(session[:query][:id])
+  def retrieve_query_from_session(klass=IssueQuery)
+    session_key = klass.name.underscore.to_sym
+    session_data = session[session_key]
+
+    if session_data
+      if session_data[:id]
+        @query = IssueQuery.find_by_id(session_data[:id])
         return unless @query
       else
-        @query = IssueQuery.new(:name => "_", :filters => session[:query][:filters], :group_by => session[:query][:group_by], :column_names => session[:query][:column_names], :totalable_names => session[:query][:totalable_names])
+        @query = IssueQuery.new(:name => "_", :filters => session_data[:filters], :group_by => session_data[:group_by], :column_names => session_data[:column_names], :totalable_names => session_data[:totalable_names])
       end
-      if session[:query].has_key?(:project_id)
-        @query.project_id = session[:query][:project_id]
+      if session_data.has_key?(:project_id)
+        @query.project_id = session_data[:project_id]
       else
         @query.project = @project
       end
@@ -294,10 +304,8 @@ module QueriesHelper
     else
       tags << hidden_field_tag("f[]", "", :id => nil)
     end
-    if query.column_names.present?
-      query.column_names.each do |name|
-        tags << hidden_field_tag("c[]", name, :id => nil)
-      end
+    query.columns.each do |column|
+      tags << hidden_field_tag("c[]", column.name, :id => nil)
     end
     if query.totalable_names.present?
       query.totalable_names.each do |name|

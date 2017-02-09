@@ -4,10 +4,10 @@ if Gem::Version.new(Bundler::VERSION) < Gem::Version.new('1.5.0')
   abort "Redmine requires Bundler 1.5.0 or higher (you're using #{Bundler::VERSION}).\nPlease update with 'gem update bundler'."
 end
 
-gem "rails", "4.2.6"
+gem "rails", "4.2.7.1"
+gem "addressable", "2.4.0" if RUBY_VERSION < "2.0"
 gem "jquery-rails", "~> 3.1.4"
 gem "coderay", "~> 1.1.1"
-gem "builder", ">= 3.0.4"
 gem "request_store", "1.0.5"
 gem "mime-types", (RUBY_VERSION >= "2.0" ? "~> 3.0" : "~> 2.99")
 gem "protected_attributes"
@@ -15,8 +15,8 @@ gem "actionpack-xml_parser"
 gem "roadie-rails"
 gem "mimemagic"
 
-# Request at least nokogiri 1.6.7.2 because of security advisories
-gem "nokogiri", ">= 1.6.7.2"
+gem "nokogiri", "~> 1.6.8"
+gem "i18n", "~> 0.7.0"
 
 # Request at least rails-html-sanitizer 1.0.3 because of security advisories 
 gem "rails-html-sanitizer", ">= 1.0.3"
@@ -78,7 +78,7 @@ if File.exist?(database_file)
         gem "jdbc-sqlite3", ">= 3.8.10.1", :platforms => :jruby
         gem "activerecord-jdbcsqlite3-adapter", :platforms => :jruby
       when /sqlserver/
-        gem "tiny_tds", "~> 0.6.2", :platforms => [:mri, :mingw, :x64_mingw]
+        gem "tiny_tds", (RUBY_VERSION >= "2.0" ? "~> 1.0.5" : "~> 0.7.0"), :platforms => [:mri, :mingw, :x64_mingw]
         gem "activerecord-sqlserver-adapter", :platforms => [:mri, :mingw, :x64_mingw]
       else
         warn("Unknown database adapter `#{adapter}` found in config/database.yml, use Gemfile.local to load your own database gems")
@@ -92,7 +92,7 @@ else
 end
 
 group :development do
-  gem "rdoc", ">= 2.4.2"
+  gem "rdoc", "~> 4.3"
   gem "yard"
 end
 
@@ -103,7 +103,7 @@ group :test do
   gem "simplecov", "~> 0.9.1", :require => false
   # For running UI tests
   gem "capybara"
-  gem "selenium-webdriver"
+  gem "selenium-webdriver", "~> 2.53.4"
 end
 
 local_gemfile = File.join(File.dirname(__FILE__), "Gemfile.local")

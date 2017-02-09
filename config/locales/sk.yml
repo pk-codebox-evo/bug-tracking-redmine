@@ -129,6 +129,8 @@ sk:
         circular_dependency: "Tento vzťah by vytvoril cyklickú závislosť"
         cant_link_an_issue_with_a_descendant: "Nemožno prepojiť úlohu s niektorou z podúloh"
         earlier_than_minimum_start_date: "nemôže byť skorší ako %{date} z dôvodu nadväznosti na predchádzajúce úlohy"
+        not_a_regexp: "is not a valid regular expression"
+        open_issue_with_closed_parent: "An open issue cannot be attached to a closed parent task"
 
   actionview_instancetag_blank_option: Vyberte
 
@@ -902,10 +904,8 @@ sk:
   project_module_calendar: Kalendár
   button_edit_associated_wikipage: "Upraviť súvisiacu wikistránku: %{page_title}"
   field_text: Textové pole
-  label_user_mail_option_only_owner: "Len pre veci, ktorých som vlastníkom"
   setting_default_notification_option: Predvolené nastavenie upozornení
   label_user_mail_option_only_my_events: Len pre veci, ktoré sledujem, alebo v ktorých som zapojený
-  label_user_mail_option_only_assigned: "Len pre veci, ktoré mi boli priradené"
   label_user_mail_option_none: "Žiadne udalosti"
   field_member_of_group: "Skupina priradeného používateľa"
   field_assigned_to_role: "Rola priradeného používateľa"
@@ -1196,3 +1196,26 @@ sk:
   label_new_project_issue_tab_enabled: Display the "New issue" tab
   setting_new_item_menu_tab: Project menu tab for creating new objects
   label_new_object_tab_enabled: Display the "+" drop-down
+  error_no_projects_with_tracker_allowed_for_new_issue: There are no projects with trackers
+    for which you can create an issue
+  field_textarea_font: Font used for text areas
+  label_font_default: Default font
+  label_font_monospace: Monospaced font
+  label_font_proportional: Proportional font
+  setting_timespan_format: Time span format
+  label_table_of_contents: Table of contents
+  setting_commit_logs_formatting: Apply text formatting to commit messages
+  setting_mail_handler_enable_regex_delimiters: Enable regular expressions
+  error_move_of_child_not_possible: 'Subtask %{child} could not be moved to the new
+    project: %{errors}'
+  error_cannot_reassign_time_entries_to_an_issue_about_to_be_deleted: Spent time cannot
+    be reassigned to an issue that is about to be deleted
+  setting_timelog_required_fields: Required fields for time logs
+  label_attribute_of_object: '%{object_name}''s %{name}'
+  label_user_mail_option_only_assigned: Only for things I watch or I am assigned to
+  label_user_mail_option_only_owner: Only for things I watch or I am the owner of
+  warning_fields_cleared_on_bulk_edit: Changes will result in the automatic deletion
+    of values from one or more fields on the selected objects
+  field_updated_by: Updated by
+  field_last_updated_by: Last updated by
+  field_full_width_layout: Full width layout

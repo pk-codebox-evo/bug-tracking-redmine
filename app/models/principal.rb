@@ -28,8 +28,7 @@ class Principal < ActiveRecord::Base
 
   has_many :members, :foreign_key => 'user_id', :dependent => :destroy
   has_many :memberships,
-           lambda {preload(:project, :roles).
-                   joins(:project).
+           lambda {joins(:project).
                    where("#{Project.table_name}.status<>#{Project::STATUS_ARCHIVED}")},
            :class_name => 'Member',
            :foreign_key => 'user_id'
@@ -108,6 +107,11 @@ class Principal < ActiveRecord::Base
 
   before_create :set_default_empty_values
 
+  def reload(*args)
+    @project_ids = nil
+    super
+  end
+
   def name(formatter = nil)
     to_s
   end
@@ -124,9 +128,14 @@ class Principal < ActiveRecord::Base
     Principal.visible(user).where(:id => id).first == self
   end
 
-  # Return true if the principal is a member of project
+  # Returns true if the principal is a member of project
   def member_of?(project)
-    projects.to_a.include?(project)
+    project.is_a?(Project) && project_ids.include?(project.id)
+  end
+
+  # Returns an array of the project ids that the principal is a member of
+  def project_ids
+    @project_ids ||= super.freeze
   end
 
   def <=>(principal)

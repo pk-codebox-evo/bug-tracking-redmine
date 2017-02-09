@@ -32,9 +32,10 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 3
     get :new
     assert_response :success
-    assert_template 'new'
+
     assert_select 'input[name=?][type=hidden]', 'project_id', 0
     assert_select 'input[name=?][type=hidden]', 'issue_id', 0
+    assert_select 'span[id=?]', 'time_entry_issue'
     assert_select 'select[name=?]', 'time_entry[project_id]' do
       # blank option for project
       assert_select 'option[value=""]'
@@ -45,7 +46,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 3
     get :new, :params => {:project_id => 1}
     assert_response :success
-    assert_template 'new'
+
     assert_select 'input[name=?][type=hidden]', 'project_id'
     assert_select 'input[name=?][type=hidden]', 'issue_id', 0
     assert_select 'select[name=?]', 'time_entry[project_id]', 0
@@ -55,9 +56,10 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 3
     get :new, :params => {:issue_id => 2}
     assert_response :success
-    assert_template 'new'
+
     assert_select 'input[name=?][type=hidden]', 'project_id', 0
     assert_select 'input[name=?][type=hidden]', 'issue_id'
+    assert_select 'a[href=?]', '/issues/2', :text => /Feature request #2/
     assert_select 'select[name=?]', 'time_entry[project_id]', 0
   end
 
@@ -65,7 +67,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 3
     get :new, :params => {:time_entry => {:project_id => '1'}}
     assert_response :success
-    assert_template 'new'
+
     assert_select 'select[name=?]', 'time_entry[project_id]' do
       assert_select 'option[value="1"][selected=selected]'
     end
@@ -106,7 +108,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     get :edit, :params => {:id => 2, :project_id => nil}
     assert_response :success
-    assert_template 'edit'
+
     assert_select 'form[action=?]', '/time_entries/2'
   end
 
@@ -118,7 +120,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 1
     get :edit, :params => {:project_id => 1, :id => 1}
     assert_response :success
-    assert_template 'edit'
+
     # Blank option since nothing is pre-selected
     assert_select 'option', :text => '--- Please select ---'
   end
@@ -249,7 +251,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     end
     assert_select_error /Issue is invalid/
     assert_select "input[name=?][value=?]", "time_entry[issue_id]", issue.id.to_s
-    assert_select "#time_entry_issue", 0
+    assert_select "#time_entry_issue a", 0
     assert !response.body.include?('issue_that_is_not_visible')
   end
 
@@ -341,7 +343,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     post :create, :params => {:time_entry => {:issue_id => ''}}
 
     assert_response :success
-    assert_template 'new'
+    assert_select_error /Project cannot be blank/
   end
 
   def test_create_with_failure
@@ -356,7 +358,6 @@ class TimelogControllerTest < Redmine::ControllerTest
       }
     }
     assert_response :success
-    assert_template 'new'
   end
 
   def test_create_without_project
@@ -393,7 +394,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     end
 
     assert_response :success
-    assert assigns(:time_entry).errors[:issue_id].present?
+    assert_select_error /Issue is invalid/
   end
 
   def test_create_without_project_should_deny_without_permission
@@ -484,8 +485,8 @@ class TimelogControllerTest < Redmine::ControllerTest
         :issue_id => '5'
       }
     }
-    assert_response 200
-    assert_include "Issue is invalid", assigns(:time_entry).errors.full_messages
+    assert_response :success
+    assert_select_error /Issue is invalid/
   end
 
   def test_get_bulk_edit
@@ -493,7 +494,6 @@ class TimelogControllerTest < Redmine::ControllerTest
 
     get :bulk_edit, :params => {:ids => [1, 2]}
     assert_response :success
-    assert_template 'bulk_edit'
 
     assert_select 'ul#bulk-selection' do
       assert_select 'li', 2
@@ -503,7 +503,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     assert_select 'form#bulk_edit_form[action=?]', '/time_entries/bulk_update' do
       # System wide custom field
       assert_select 'select[name=?]', 'time_entry[custom_field_values][10]'
-  
+
       # Activities
       assert_select 'select[name=?]', 'time_entry[activity_id]' do
         assert_select 'option[value=""]', :text => '(No change)'
@@ -517,7 +517,6 @@ class TimelogControllerTest < Redmine::ControllerTest
 
     get :bulk_edit, :params => {:ids => [1, 2, 6]}
     assert_response :success
-    assert_template 'bulk_edit'
   end
 
   def test_bulk_edit_with_edit_own_time_entries_permission
@@ -552,7 +551,7 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     # makes user a manager on the other project
     Member.create!(:user_id => 2, :project_id => 3, :role_ids => [1])
-    
+
     # update time entry activity
     post :bulk_update, :params => {:ids => [1, 2, 4], :time_entry => { :activity_id => 9 }}
 
@@ -652,6 +651,15 @@ class TimelogControllerTest < Redmine::ControllerTest
     assert_not_nil TimeEntry.find_by_id(1)
   end
 
+  def test_destroy_should_redirect_to_referer
+    referer = 'http://test.host/time_entries?utf8=✓&set_filter=1&&f%5B%5D=user_id&op%5Buser_id%5D=%3D&v%5Buser_id%5D%5B%5D=me'
+    @request.env["HTTP_REFERER"] = referer
+    @request.session[:user_id] = 2
+
+    delete :destroy, :params => {:id => 1}
+    assert_redirected_to referer
+  end
+
   def test_index_all_projects
     get :index
     assert_response :success
@@ -664,26 +672,28 @@ class TimelogControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     get :index
     assert_response :success
-    assert_template 'index'
+
     assert_select 'a[href=?]', '/time_entries/new', :text => /Log time/
   end
 
   def test_index_my_spent_time
     @request.session[:user_id] = 2
-    get :index, :params => {:user_id => 'me'}
+    get :index, :params => {:user_id => 'me', :c => ['user']}
     assert_response :success
-    assert_template 'index'
-    assert assigns(:entries).all? {|entry| entry.user_id == 2}
+
+    users = css_select('table.time-entries tbody td.user').map(&:text).uniq
+    assert_equal ["John Smith"], users
   end
 
   def test_index_at_project_level
-    get :index, :params => {:project_id => 'ecookbook'}
+    get :index, :params => {:project_id => 'ecookbook', :c => ['project']}
     assert_response :success
-    assert_template 'index'
-    assert_not_nil assigns(:entries)
-    assert_equal 4, assigns(:entries).size
+
+    assert_select 'tr.time-entry', 4
+
     # project and subproject
-    assert_equal [1, 3], assigns(:entries).collect(&:project_id).uniq.sort
+    projects = css_select('table.time-entries tbody td.project').map(&:text).uniq.sort
+    assert_equal ["eCookbook", "eCookbook Subproject 1"], projects
 
     assert_select '.total-for-hours', :text => 'Hours: 162.90'
     assert_select 'form#query_form[action=?]', '/projects/ecookbook/time_entries'
@@ -693,10 +703,11 @@ class TimelogControllerTest < Redmine::ControllerTest
     entry = TimeEntry.generate!(:project => Project.find(3))
 
     with_settings :display_subprojects_issues => '0' do
-      get :index, :params => {:project_id => 'ecookbook'}
+      get :index, :params => {:project_id => 'ecookbook', :c => ['project']}
       assert_response :success
-      assert_template 'index'
-      assert_not_include entry, assigns(:entries)
+
+      projects = css_select('table.time-entries tbody td.project').map(&:text).uniq.sort
+      assert_equal ["eCookbook"], projects
     end
   end
 
@@ -704,10 +715,11 @@ class TimelogControllerTest < Redmine::ControllerTest
     entry = TimeEntry.generate!(:project => Project.find(3))
 
     with_settings :display_subprojects_issues => '0' do
-      get :index, :params => {:project_id => 'ecookbook', :subproject_id => 3}
+      get :index, :params => {:project_id => 'ecookbook', :c => ['project'], :subproject_id => 3}
       assert_response :success
-      assert_template 'index'
-      assert_include entry, assigns(:entries)
+
+      projects = css_select('table.time-entries tbody td.project').map(&:text).uniq.sort
+      assert_equal ["eCookbook", "eCookbook Subproject 1"], projects
     end
   end
 
@@ -740,10 +752,8 @@ class TimelogControllerTest < Redmine::ControllerTest
       :v => {'spent_on' => ['2007-03-20', '2007-04-30']}
     }
     assert_response :success
-    assert_template 'index'
-    assert_not_nil assigns(:entries)
-    assert_equal 3, assigns(:entries).size
 
+    assert_select 'tr.time-entry', 3
     assert_select '.total-for-hours', :text => 'Hours: 12.90'
     assert_select 'form#query_form[action=?]', '/projects/ecookbook/time_entries'
   end
@@ -755,10 +765,8 @@ class TimelogControllerTest < Redmine::ControllerTest
       :to => '2007-04-30'
     }
     assert_response :success
-    assert_template 'index'
-    assert_not_nil assigns(:entries)
-    assert_equal 3, assigns(:entries).size
 
+    assert_select 'tr.time-entry', 3
     assert_select '.total-for-hours', :text => 'Hours: 12.90'
     assert_select 'form#query_form[action=?]', '/projects/ecookbook/time_entries'
   end
@@ -787,7 +795,7 @@ class TimelogControllerTest < Redmine::ControllerTest
       :v => {'spent_on' => ['2012-06-15', '2012-06-16']}
     }
     assert_response :success
-    assert_equal [t2, t1, t3], assigns(:entries)
+    assert_equal [t2, t1, t3].map(&:id).map(&:to_s), css_select('input[name="ids[]"]').map {|e| e.attr('value')}
 
     get :index, :params => {
       :project_id => 1,
@@ -797,7 +805,93 @@ class TimelogControllerTest < Redmine::ControllerTest
       :sort => 'spent_on'
     }
     assert_response :success
-    assert_equal [t3, t1, t2], assigns(:entries)
+    assert_equal [t3, t1, t2].map(&:id).map(&:to_s), css_select('input[name="ids[]"]').map {|e| e.attr('value')}
+  end
+
+  def test_index_with_issue_status_filter
+    Issue.where(:status_id => 4).update_all(:status_id => 2)
+    issue = Issue.generate!(:project_id => 1, :tracker_id => 1, :status_id => 4)
+    entry = TimeEntry.generate!(:issue => issue, :hours => 4.5)
+
+    get :index, :params => {
+      :f => ['issue.status_id'],
+      :op => {'issue.status_id' => '='},
+      :v => {'issue.status_id' => ['4']}
+    }
+    assert_response :success
+    assert_equal [entry].map(&:id).map(&:to_s), css_select('input[name="ids[]"]').map {|e| e.attr('value')}
+  end
+
+  def test_index_with_issue_status_column
+    issue = Issue.generate!(:project_id => 1, :tracker_id => 1, :status_id => 4)
+    entry = TimeEntry.generate!(:issue => issue)
+
+    get :index, :params => {
+      :c => %w(project spent_on issue comments hours issue.status)
+    }
+    assert_response :success
+    assert_select 'td.issue-status', :text => issue.status.name
+  end
+
+  def test_index_with_issue_status_sort
+    TimeEntry.delete_all
+    TimeEntry.generate!(:issue => Issue.generate!(:project_id => 1, :tracker_id => 1, :status_id => 1))
+    TimeEntry.generate!(:issue => Issue.generate!(:project_id => 1, :tracker_id => 1, :status_id => 5))
+    TimeEntry.generate!(:issue => Issue.generate!(:project_id => 1, :tracker_id => 1, :status_id => 3))
+    TimeEntry.generate!(:project_id => 1)
+
+    get :index, :params => {
+      :c => ["hours", 'issue.status'],
+      :sort => 'issue.status'
+    }
+    assert_response :success
+
+    # Make sure that values are properly sorted
+    values = css_select("td.issue-status").map(&:text).reject(&:blank?)
+    assert_equal IssueStatus.where(:id => [1, 5, 3]).sorted.pluck(:name), values
+  end
+
+  def test_index_with_issue_tracker_filter
+    Issue.where(:tracker_id => 2).update_all(:tracker_id => 1)
+    issue = Issue.generate!(:project_id => 1, :tracker_id => 2)
+    entry = TimeEntry.generate!(:issue => issue, :hours => 4.5)
+
+    get :index, :params => {
+      :f => ['issue.tracker_id'],
+      :op => {'issue.tracker_id' => '='},
+      :v => {'issue.tracker_id' => ['2']}
+    }
+    assert_response :success
+    assert_equal [entry].map(&:id).map(&:to_s), css_select('input[name="ids[]"]').map {|e| e.attr('value')}
+  end
+
+  def test_index_with_issue_tracker_column
+    issue = Issue.generate!(:project_id => 1, :tracker_id => 2)
+    entry = TimeEntry.generate!(:issue => issue)
+
+    get :index, :params => {
+      :c => %w(project spent_on issue comments hours issue.tracker)
+    }
+    assert_response :success
+    assert_select 'td.issue-tracker', :text => issue.tracker.name
+  end
+
+  def test_index_with_issue_tracker_sort
+    TimeEntry.delete_all
+    TimeEntry.generate!(:issue => Issue.generate!(:tracker_id => 1))
+    TimeEntry.generate!(:issue => Issue.generate!(:tracker_id => 3))
+    TimeEntry.generate!(:issue => Issue.generate!(:tracker_id => 2))
+    TimeEntry.generate!(:project_id => 1)
+
+    get :index, :params => {
+      :c => ["hours", 'issue.tracker'],
+      :sort => 'issue.tracker'
+    }
+    assert_response :success
+
+    # Make sure that values are properly sorted
+    values = css_select("td.issue-tracker").map(&:text).reject(&:blank?)
+    assert_equal Tracker.where(:id => [1, 2, 3]).sorted.pluck(:name), values
   end
 
   def test_index_with_filter_on_issue_custom_field
@@ -810,7 +904,7 @@ class TimelogControllerTest < Redmine::ControllerTest
       :v => {'issue.cf_2' => ['filter_on_issue_custom_field']}
     }
     assert_response :success
-    assert_equal [entry], assigns(:entries)
+    assert_equal [entry].map(&:id).map(&:to_s), css_select('input[name="ids[]"]').map {|e| e.attr('value')}
   end
 
   def test_index_with_issue_custom_field_column
@@ -821,7 +915,6 @@ class TimelogControllerTest < Redmine::ControllerTest
       :c => %w(project spent_on issue comments hours issue.cf_2)
     }
     assert_response :success
-    assert_include :'issue.cf_2', assigns(:query).column_names
     assert_select 'td.issue_cf_2', :text => 'filter_on_issue_custom_field'
   end
 
@@ -834,7 +927,6 @@ class TimelogControllerTest < Redmine::ControllerTest
       :c => ["hours", field_name]
     }
     assert_response :success
-    assert_include field_name.to_sym, assigns(:query).column_names
     assert_select "td.#{field_name}", :text => 'CF Value'
   end
 
@@ -850,13 +942,12 @@ class TimelogControllerTest < Redmine::ControllerTest
       :sort => field_name
     }
     assert_response :success
-    assert_include field_name.to_sym, assigns(:query).column_names
     assert_select "th a.sort", :text => 'String Field'
 
     # Make sure that values are properly sorted
-    values = assigns(:entries).map {|e| e.custom_field_value(field)}.compact
-    assert_equal 3, values.size
+    values = css_select("td.#{field_name}").map(&:text).reject(&:blank?)
     assert_equal values.sort, values
+    assert_equal 3, values.size
   end
 
   def test_index_with_query
@@ -874,13 +965,12 @@ class TimelogControllerTest < Redmine::ControllerTest
     get :index, :params => {:project_id => 1, :format => 'atom'}
     assert_response :success
     assert_equal 'application/atom+xml', @response.content_type
-    assert_not_nil assigns(:items)
-    assert assigns(:items).first.is_a?(TimeEntry)
+    assert_select 'entry > title', :text => /7\.65 hours/
   end
 
   def test_index_at_project_level_should_include_csv_export_dialog
     get :index, :params => {
-      :project_id => 'ecookbook', 
+      :project_id => 'ecookbook',
       :f => ['spent_on'],
       :op => {'spent_on' => '>='},
       :v => {'spent_on' => ['2007-04-01']},
@@ -895,9 +985,10 @@ class TimelogControllerTest < Redmine::ControllerTest
         assert_select 'input[name=?][value=?]', 'op[spent_on]', '>='
         assert_select 'input[name=?][value=?]', 'v[spent_on][]', '2007-04-01'
         # columns
-        assert_select 'input[name=?][value=?]', 'c[]', 'spent_on'
-        assert_select 'input[name=?][value=?]', 'c[]', 'user'
-        assert_select 'input[name=?]', 'c[]', 2
+        assert_select 'input[name=?][type=hidden][value=?]', 'c[]', 'spent_on'
+        assert_select 'input[name=?][type=hidden][value=?]', 'c[]', 'user'
+        assert_select 'input[name=?][type=hidden]', 'c[]', 2
+        assert_select 'input[name=?][value=?]', 'c[]', 'all_inline'
       end
     end
   end

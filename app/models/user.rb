@@ -111,6 +111,7 @@ class User < Principal
   validates_format_of :login, :with => /\A[a-z0-9_\-@\.]*\z/i
   validates_length_of :login, :maximum => LOGIN_LENGTH_LIMIT
   validates_length_of :firstname, :lastname, :maximum => 30
+  validates_length_of :identity_url, maximum: 255
   validates_inclusion_of :mail_notification, :in => MAIL_NOTIFICATION_OPTIONS.collect(&:first), :allow_blank => true
   validate :validate_password_length
   validate do
@@ -161,7 +162,9 @@ class User < Principal
   alias :base_reload :reload
   def reload(*args)
     @name = nil
+    @roles = nil
     @projects_by_role = nil
+    @project_ids_by_role = nil
     @membership_by_project_id = nil
     @notified_projects_ids = nil
     @notified_projects_ids_changed = false
@@ -544,6 +547,10 @@ class User < Principal
     @membership_by_project_id[project_id]
   end
 
+  def roles
+    @roles ||= Role.joins(members: :project).where(["#{Project.table_name}.status <> ?", Project::STATUS_ARCHIVED]).where(Member.arel_table[:user_id].eq(id)).uniq
+  end
+
   # Returns the user's bult-in role
   def builtin_role
     @builtin_role ||= Role.non_member
@@ -563,33 +570,51 @@ class User < Principal
   end
 
   # Returns a hash of user's projects grouped by roles
+  # TODO: No longer used, should be deprecated
   def projects_by_role
     return @projects_by_role if @projects_by_role
 
-    hash = Hash.new([])
+    result = Hash.new([])
+    project_ids_by_role.each do |role, ids|
+      result[role] = Project.where(:id => ids).to_a
+    end
+    @projects_by_role = result
+  end
+
+  # Returns a hash of project ids grouped by roles.
+  # Includes the projects that the user is a member of and the projects
+  # that grant custom permissions to the builtin groups.
+  def project_ids_by_role
+    return @project_ids_by_role if @project_ids_by_role
 
     group_class = anonymous? ? GroupAnonymous : GroupNonMember
-    members = Member.joins(:project, :principal).
-      where("#{Project.table_name}.status <> 9").
-      where("#{Member.table_name}.user_id = ? OR (#{Project.table_name}.is_public = ? AND #{Principal.table_name}.type = ?)", self.id, true, group_class.name).
-      preload(:project, :roles).
-      to_a
+    group_id = group_class.pluck(:id).first
 
-    members.reject! {|member| member.user_id != id && project_ids.include?(member.project_id)}
-    members.each do |member|
-      if member.project
-        member.roles.each do |role|
-          hash[role] = [] unless hash.key?(role)
-          hash[role] << member.project
+    members = Member.joins(:project, :member_roles).
+      where("#{Project.table_name}.status <> 9").
+      where("#{Member.table_name}.user_id = ? OR (#{Project.table_name}.is_public = ? AND #{Member.table_name}.user_id = ?)", self.id, true, group_id).
+      pluck(:user_id, :role_id, :project_id)
+
+    hash = {}
+    members.each do |user_id, role_id, project_id|
+      # Ignore the roles of the builtin group if the user is a member of the project
+      next if user_id != id && project_ids.include?(project_id)
+
+      hash[role_id] ||= []
+      hash[role_id] << project_id
+    end
+
+    result = Hash.new([])
+    if hash.present?
+      roles = Role.where(:id => hash.keys).to_a
+      hash.each do |role_id, proj_ids|
+        role = roles.detect {|r| r.id == role_id}
+        if role
+          result[role] = proj_ids.uniq
         end
       end
     end
-    
-    hash.each do |role, projects|
-      projects.uniq!
-    end
-
-    @projects_by_role = hash
+    @project_ids_by_role = result
   end
 
   # Returns the ids of visible projects
@@ -653,8 +678,7 @@ class User < Principal
       return true if admin?
 
       # authorize if user has at least one role that has this permission
-      roles = memberships.collect {|m| m.roles}.flatten.uniq
-      roles << (self.logged? ? Role.non_member : Role.anonymous)
+      roles = self.roles.to_a | [builtin_role]
       roles.any? {|role|
         role.allowed_to?(action) &&
         (block_given? ? yield(role, self) : true)
@@ -749,9 +773,9 @@ class User < Principal
   # Returns the anonymous user.  If the anonymous user does not exist, it is created.  There can be only
   # one anonymous user per database.
   def self.anonymous
-    anonymous_user = AnonymousUser.first
+    anonymous_user = AnonymousUser.unscoped.first
     if anonymous_user.nil?
-      anonymous_user = AnonymousUser.create(:lastname => 'Anonymous', :firstname => '', :login => '', :status => 0)
+      anonymous_user = AnonymousUser.unscoped.create(:lastname => 'Anonymous', :firstname => '', :login => '', :status => 0)
       raise 'Unable to create the anonymous user.' if anonymous_user.new_record?
     end
     anonymous_user

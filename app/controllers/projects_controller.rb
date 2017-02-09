@@ -18,6 +18,7 @@
 class ProjectsController < ApplicationController
   menu_item :overview
   menu_item :settings, :only => :settings
+  menu_item :projects, :only => [:index, :new, :copy, :create]
 
   before_action :find_project, :except => [ :index, :list, :new, :create, :copy ]
   before_action :authorize, :except => [ :index, :list, :new, :create, :copy, :archive, :unarchive, :destroy]
@@ -35,6 +36,11 @@ class ProjectsController < ApplicationController
 
   # Lists visible projects
   def index
+    # try to redirect to the requested menu item
+    if params[:jump] && redirect_to_menu_item(params[:jump])
+      return
+    end
+
     scope = Project.visible.sorted
 
     respond_to do |format|
@@ -43,6 +49,13 @@ class ProjectsController < ApplicationController
           scope = scope.active
         end
         @projects = scope.to_a
+      }
+      format.js {
+        if params[:q].present?
+          @projects = Project.visible.like(params[:q]).to_a
+        else
+          @projects = User.current.projects.to_a
+        end
       }
       format.api  {
         @offset, @limit = api_offset_and_limit
@@ -155,6 +168,10 @@ class ProjectsController < ApplicationController
     @issue_category ||= IssueCategory.new
     @member ||= @project.members.new
     @trackers = Tracker.sorted.to_a
+
+    @version_status = params[:version_status] || 'open'
+    @version_name = params[:version_name]
+    @versions = @project.shared_versions.status(@version_status).like(@version_name)
     @wiki ||= @project.wiki || Wiki.new(:project => @project)
   end
 
@@ -192,14 +209,14 @@ class ProjectsController < ApplicationController
     unless @project.archive
       flash[:error] = l(:error_can_not_archive_project)
     end
-    redirect_to admin_projects_path(:status => params[:status])
+    redirect_to_referer_or admin_projects_path(:status => params[:status])
   end
 
   def unarchive
     unless @project.active?
       @project.unarchive
     end
-    redirect_to admin_projects_path(:status => params[:status])
+    redirect_to_referer_or admin_projects_path(:status => params[:status])
   end
 
   def close

@@ -25,6 +25,16 @@ class WatchersControllerTest < Redmine::ControllerTest
     User.current = nil
   end
 
+  def test_watch_a_single_object_as_html
+    @request.session[:user_id] = 3
+    assert_difference('Watcher.count') do
+      post :watch, :params => {:object_type => 'issue', :object_id => '1'}
+      assert_response :success
+      assert_include 'Watcher added', response.body
+    end
+    assert Issue.find(1).watched_by?(User.find(3))
+  end
+
   def test_watch_a_single_object
     @request.session[:user_id] = 3
     assert_difference('Watcher.count') do
@@ -102,6 +112,16 @@ class WatchersControllerTest < Redmine::ControllerTest
     end
   end
 
+  def test_unwatch_as_html
+    @request.session[:user_id] = 3
+    assert_difference('Watcher.count', -1) do
+      delete :unwatch, :params => {:object_type => 'issue', :object_id => '2'}
+      assert_response :success
+      assert_include 'Watcher removed', response.body
+    end
+    assert !Issue.find(1).watched_by?(User.find(3))
+  end
+
   def test_unwatch
     @request.session[:user_id] = 3
     assert_difference('Watcher.count', -1) do
@@ -144,7 +164,6 @@ class WatchersControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     xhr :get, :new, :params => {:project_id => 1}
     assert_response :success
-    assert_equal Project.find(1), assigns(:project)
     assert_match /ajax-modal/, response.body
   end
 
@@ -152,8 +171,20 @@ class WatchersControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     xhr :get, :new, :params => {:project_id => 'ecookbook'}
     assert_response :success
-    assert_equal Project.find(1), assigns(:project)
     assert_match /ajax-modal/, response.body
+  end
+
+  def test_create_as_html
+    @request.session[:user_id] = 2
+    assert_difference('Watcher.count') do
+      post :create, :params => {
+        :object_type => 'issue', :object_id => '2',
+        :watcher => {:user_id => '4'}
+      }
+      assert_response :success
+      assert_include 'Watcher added', response.body
+    end
+    assert Issue.find(2).watched_by?(User.find(4))
   end
 
   def test_create
@@ -266,16 +297,16 @@ class WatchersControllerTest < Redmine::ControllerTest
   def test_autocomplete_for_user_should_return_visible_users
     Role.update_all :users_visibility => 'members_of_visible_projects'
 
-    hidden = User.generate!(:lastname => 'autocomplete')
-    visible = User.generate!(:lastname => 'autocomplete')
+    hidden = User.generate!(:lastname => 'autocomplete_hidden')
+    visible = User.generate!(:lastname => 'autocomplete_visible')
     User.add_to_project(visible, Project.find(1))
 
     @request.session[:user_id] = 2
     xhr :get, :autocomplete_for_user, :params => {:q => 'autocomp', :project_id => 'ecookbook'}
     assert_response :success
 
-    assert_include visible, assigns(:users)
-    assert_not_include hidden, assigns(:users)
+    assert_include visible.name, response.body
+    assert_not_include hidden.name, response.body
   end
 
   def test_append
@@ -295,6 +326,18 @@ class WatchersControllerTest < Redmine::ControllerTest
     xhr :post, :append, :params => {:project_id => 'ecookbook'}
     assert_response :success
     assert response.body.blank?
+  end
+
+  def test_destroy_as_html
+    @request.session[:user_id] = 2
+    assert_difference('Watcher.count', -1) do
+      delete :destroy, :params => {
+        :object_type => 'issue', :object_id => '2', :user_id => '3'
+      }
+      assert_response :success
+      assert_include 'Watcher removed', response.body
+    end
+    assert !Issue.find(2).watched_by?(User.find(3))
   end
 
   def test_destroy

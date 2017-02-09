@@ -538,6 +538,16 @@ class MailHandlerTest < ActiveSupport::TestCase
     assert_equal 'd8e8fca2dc0f896fd7cb4cb0031ba249', attachment.digest
   end
 
+  def test_invalid_utf8
+    issue = submit_email(
+              'invalid_utf8.eml',
+              :issue => {:project => 'ecookbook'}
+            )
+    assert_kind_of Issue, issue
+    description = "\xD0\x97\xD0\xB4\xD1\x80\xD0\xB0\xD0\xB2\xD1\x81\xD1\x82\xD0\xB2\xD1\x83\xD0\xB9\xD1\x82\xD0\xB5?".force_encoding('UTF-8')
+    assert_equal description, issue.description
+  end
+
   def test_gmail_with_attachment_ja
     issue = submit_email(
               'gmail_with_attachment_ja.eml',
@@ -974,6 +984,25 @@ class MailHandlerTest < ActiveSupport::TestCase
       assert !issue.description.include?('This paragraph is between delimiters')
       assert !issue.description.match(/^---$/)
       assert !issue.description.include?('This paragraph is after the delimiter')
+    end
+  end
+
+  test "truncate emails using a regex delimiter" do
+    delimiter = "On .*, .* at .*, .* <.*<mailto:.*>> wrote:"
+    with_settings :mail_handler_enable_regex_delimiters => '1', :mail_handler_body_delimiters => delimiter do
+      issue = submit_email('ticket_reply_from_mail.eml')
+      assert_issue_created(issue)
+      assert issue.description.include?('This paragraph is before delimiter')
+      assert !issue.description.include?('On Wed, 11 Oct at 1:05 PM, Jon Smith <jsmith@somenet.foo<mailto:jsmith@somenet.foo>> wrote:')
+      assert !issue.description.include?('This paragraph is after the delimiter')
+    end
+
+    with_settings :mail_handler_enable_regex_delimiters => '0', :mail_handler_body_delimiters => delimiter do
+      issue = submit_email('ticket_reply_from_mail.eml')
+      assert_issue_created(issue)
+      assert issue.description.include?('This paragraph is before delimiter')
+      assert issue.description.include?('On Wed, 11 Oct at 1:05 PM, Jon Smith <jsmith@somenet.foo<mailto:jsmith@somenet.foo>> wrote:')
+      assert issue.description.include?('This paragraph is after the delimiter')
     end
   end
 

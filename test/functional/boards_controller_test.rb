@@ -36,7 +36,7 @@ class BoardsControllerTest < Redmine::ControllerTest
   end
 
   def test_index_should_show_messages_if_only_one_board
-    Project.find(1).boards.slice(1..-1).each(&:destroy)
+    Project.find(1).boards.to_a.slice(1..-1).each(&:destroy)
 
     get :index, :project_id => 1
     assert_response :success
@@ -161,14 +161,14 @@ class BoardsControllerTest < Redmine::ControllerTest
       post :create, :project_id => 1, :board => { :name => '', :description => 'Testing board creation'}
     end
     assert_response :success
-    assert_template 'new'
+    assert_select_error /Name cannot be blank/
   end
 
   def test_edit
     @request.session[:user_id] = 2
     get :edit, :project_id => 1, :id => 2
     assert_response :success
-    assert_template 'edit'
+    assert_select 'input[name=?][value=?]', 'board[name]', 'Discussion'
   end
 
   def test_edit_with_parent
@@ -176,7 +176,6 @@ class BoardsControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     get :edit, :project_id => 1, :id => board.id
     assert_response :success
-    assert_template 'edit'
 
     assert_select 'select[name=?]', 'board[parent_id]' do
       assert_select 'option[value="2"][selected=selected]'
@@ -204,7 +203,7 @@ class BoardsControllerTest < Redmine::ControllerTest
     @request.session[:user_id] = 2
     put :update, :project_id => 1, :id => 2, :board => { :name => '', :description => 'Testing board update'}
     assert_response :success
-    assert_template 'edit'
+    assert_select_error /Name cannot be blank/
   end
 
   def test_destroy

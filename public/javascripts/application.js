@@ -120,6 +120,18 @@ function initFilters() {
 function addFilter(field, operator, values) {
   var fieldId = field.replace('.', '_');
   var tr = $('#tr_'+fieldId);
+  
+  var filterOptions = availableFilters[field];
+  if (!filterOptions) return;
+
+  if (filterOptions['remote'] && filterOptions['values'] == null) {
+    $.getJSON(filtersUrl, {'name': field}).done(function(data) {
+      filterOptions['values'] = data;
+      addFilter(field, operator, values) ;
+    });
+    return;
+  }
+
   if (tr.length > 0) {
     tr.show();
   } else {
@@ -212,8 +224,8 @@ function buildFilterRow(field, operator, values) {
     );
     $('#values_'+fieldId).val(values[0]);
     select = tr.find('td.values select');
-    for (i = 0; i < allProjects.length; i++) {
-      var filterValue = allProjects[i];
+    for (i = 0; i < filterValues.length; i++) {
+      var filterValue = filterValues[i];
       var option = $('<option>');
       option.val(filterValue[1]).text(filterValue[0]);
       if (values[0] == filterValue[1]) { option.attr('selected', true); }
@@ -385,7 +397,7 @@ function displayTabsButtons() {
       }
     });
     var bw = $(el).parents('div.tabs-buttons').outerWidth(true);
-    if ((tabsWidth < el.width() - bw) && (lis.first().is(':visible'))) {
+    if ((tabsWidth < el.width() - bw) && (lis.length === 0 || lis.first().is(':visible'))) {
       el.find('div.tabs-buttons').hide();
     } else {
       el.find('div.tabs-buttons').show().children('button.tab-left').toggleClass('disabled', numHidden == 0);
@@ -572,6 +584,69 @@ function observeSearchfield(fieldId, targetId, url) {
   });
 }
 
+$(document).ready(function(){
+  $(".drdn .autocomplete").val('');
+
+  $(".drdn-trigger").click(function(e){
+    var drdn = $(this).closest(".drdn");
+    if (drdn.hasClass("expanded")) {
+      drdn.removeClass("expanded");
+    } else {
+      $(".drdn").removeClass("expanded");
+      drdn.addClass("expanded");
+      if (!isMobile()) {
+        drdn.find(".autocomplete").focus();
+      }
+      e.stopPropagation();
+    }
+  });
+  $(document).click(function(e){
+    if ($(e.target).closest(".drdn").length < 1) {
+      $(".drdn.expanded").removeClass("expanded");
+    } 
+  });
+
+  observeSearchfield('projects-quick-search', null, $('#projects-quick-search').data('automcomplete-url'));
+
+  $(".drdn-content").keydown(function(event){
+    var items = $(this).find(".drdn-items");
+    var focused = items.find("a:focus");
+    switch (event.which) {
+    case 40: //down
+      if (focused.length > 0) {
+        focused.nextAll("a").first().focus();;
+      } else {
+        items.find("a").first().focus();;
+      }
+      event.preventDefault();
+      break;
+    case 38: //up
+      if (focused.length > 0) {
+        var prev = focused.prevAll("a");
+        if (prev.length > 0) {
+          prev.first().focus();
+        } else {
+          $(this).find(".autocomplete").focus();
+        }
+        event.preventDefault();
+      }
+      break;
+    case 35: //end
+      if (focused.length > 0) {
+        focused.nextAll("a").last().focus();
+        event.preventDefault();
+      }
+      break;
+    case 36: //home
+      if (focused.length > 0) {
+        focused.prevAll("a").last().focus();
+        event.preventDefault();
+      }
+      break;
+    }
+  });
+});
+
 function beforeShowDatePicker(input, inst) {
   var default_date = null;
   switch ($(input).attr("id")) {
@@ -602,6 +677,7 @@ function beforeShowDatePicker(input, inst) {
     }, options );
 
     return this.sortable($.extend({
+      axis: 'y',
       handle: ".sort-handle",
       helper: function(event, ui){
         ui.children('td').each(function(){
@@ -621,10 +697,6 @@ function beforeShowDatePicker(input, inst) {
           type: 'put',
           dataType: 'script',
           data: data,
-          success: function(data){
-            sortable.children(":even").removeClass("even").addClass("odd");
-            sortable.children(":odd").removeClass("odd").addClass("even");
-          },
           error: function(jqXHR, textStatus, errorThrown){
             alert(jqXHR.status);
             sortable.sortable("cancel");

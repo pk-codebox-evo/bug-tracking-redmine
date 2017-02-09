@@ -26,7 +26,7 @@ class MembersController < ApplicationController
   require_sudo_mode :create, :update, :destroy
 
   def index
-    scope = @project.memberships.active
+    scope = @project.memberships
     @offset, @limit = api_offset_and_limit
     @member_count = scope.count
     @member_pages = Paginator.new @member_count, @limit, params['page']
@@ -78,6 +78,10 @@ class MembersController < ApplicationController
         end
       }
     end
+  end
+
+  def edit
+    @roles = Role.givable.to_a
   end
 
   def update

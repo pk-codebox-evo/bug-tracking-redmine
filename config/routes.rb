@@ -74,6 +74,7 @@ Rails.application.routes.draw do
   match 'my/account', :controller => 'my', :action => 'account', :via => [:get, :post]
   match 'my/account/destroy', :controller => 'my', :action => 'destroy', :via => [:get, :post]
   match 'my/page', :controller => 'my', :action => 'page', :via => :get
+  post 'my/page', :to => 'my#update_page'
   match 'my', :controller => 'my', :action => 'index', :via => :get # Redirects to my/page
   get 'my/api_key', :to => 'my#show_api_key', :as => 'my_api_key'
   post 'my/api_key', :to => 'my#reset_api_key'
@@ -112,7 +113,7 @@ Rails.application.routes.draw do
     end
 
     shallow do
-      resources :memberships, :controller => 'members', :only => [:index, :show, :new, :create, :update, :destroy] do
+      resources :memberships, :controller => 'members' do
         collection do
           get 'autocomplete'
         end
@@ -198,6 +199,7 @@ Rails.application.routes.draw do
   match '/issues', :controller => 'issues', :action => 'destroy', :via => :delete
 
   resources :queries, :except => [:show]
+  get '/queries/filter', :to => 'queries#filter', :as => 'queries_filter'
 
   resources :news, :only => [:index, :show, :edit, :update, :destroy]
   match '/news/:id/comments', :to => 'comments#create', :via => :post
@@ -214,6 +216,10 @@ Rails.application.routes.draw do
   match '/time_entries/context_menu', :to => 'context_menus#time_entries', :as => :time_entries_context_menu, :via => [:get, :post]
 
   resources :time_entries, :controller => 'timelog', :except => :destroy do
+    member do
+      # Used when updating the edit form of an existing time entry
+      patch 'edit', :to => 'timelog#edit'
+    end
     collection do
       get 'report'
       get 'bulk_edit'
@@ -293,9 +299,9 @@ Rails.application.routes.draw do
   get 'attachments/download/:id/:filename', :to => 'attachments#download', :id => /\d+/, :filename => /.*/, :as => 'download_named_attachment'
   get 'attachments/download/:id', :to => 'attachments#download', :id => /\d+/
   get 'attachments/thumbnail/:id(/:size)', :to => 'attachments#thumbnail', :id => /\d+/, :size => /\d+/, :as => 'thumbnail'
-  resources :attachments, :only => [:show, :destroy]
-  get 'attachments/:object_type/:object_id/edit', :to => 'attachments#edit', :as => :object_attachments_edit
-  patch 'attachments/:object_type/:object_id', :to => 'attachments#update', :as => :object_attachments
+  resources :attachments, :only => [:show, :update, :destroy]
+  get 'attachments/:object_type/:object_id/edit', :to => 'attachments#edit_all', :as => :object_attachments_edit
+  patch 'attachments/:object_type/:object_id', :to => 'attachments#update_all', :as => :object_attachments
 
   resources :groups do
     resources :memberships, :controller => 'principal_memberships'

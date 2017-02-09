@@ -197,6 +197,8 @@ module ApplicationHelper
       l(:general_text_No)
     when 'Issue'
       object.visible? && html ? link_to_issue(object) : "##{object.id}"
+    when 'Attachment'
+      html ? link_to_attachment(object, :download => true) : object.filename
     when 'CustomValue', 'CustomFieldValue'
       if object.custom_field
         f = object.custom_field.format.formatted_custom_value(self, object, html)
@@ -218,9 +220,18 @@ module ApplicationHelper
   end
 
   def thumbnail_tag(attachment)
-    link_to image_tag(thumbnail_path(attachment)),
-      named_attachment_path(attachment, attachment.filename),
+    link_to(
+      image_tag(
+        thumbnail_path(attachment),
+        :srcset => "#{thumbnail_path(attachment, :size => Setting.thumbnails_size.to_i * 2)} 2x",
+        :width => Setting.thumbnails_size 
+      ),
+      named_attachment_path(
+        attachment,
+        attachment.filename
+      ),
       :title => attachment.filename
+    )
   end
 
   def toggle_link(name, id, options={})
@@ -230,8 +241,9 @@ module ApplicationHelper
     link_to(name, "#", :onclick => onclick)
   end
 
+  # Used to format item titles on the activity view
   def format_activity_title(text)
-    h(truncate_single_line_raw(text, 100))
+    text
   end
 
   def format_activity_day(date)
@@ -249,6 +261,11 @@ module ApplicationHelper
     else
       h("#{version.project} - #{version}")
     end
+  end
+
+  def format_changeset_comments(changeset, options={})
+    method = options[:short] ? :short_comments : :comments
+    textilizable changeset, method, :formatting => Setting.commit_logs_formatting?
   end
 
   def due_date_distance_in_words(date)
@@ -328,22 +345,40 @@ module ApplicationHelper
     end
   end
 
+  # Returns an array of projects that are displayed in the quick-jump box
+  def projects_for_jump_box(user=User.current)
+    if user.logged?
+      user.projects.active.select(:id, :name, :identifier, :lft, :rgt).to_a
+    else
+      []
+    end
+  end
+
+  def render_projects_for_jump_box(projects, selected=nil)
+    s = ''.html_safe
+    project_tree(projects) do |project, level|
+      padding = level * 16
+      text = content_tag('span', project.name, :style => "padding-left:#{padding}px;")
+      s << link_to(text, project_path(project, :jump => current_menu_item), :title => project.name, :class => (project == selected ? 'selected' : nil))
+    end
+    s
+  end
+
   # Renders the project quick-jump box
   def render_project_jump_box
-    return unless User.current.logged?
-    projects = User.current.projects.active.select(:id, :name, :identifier, :lft, :rgt).to_a
-    if projects.any?
-      options =
-        ("<option value=''>#{ l(:label_jump_to_a_project) }</option>" +
-         '<option value="" disabled="disabled">---</option>').html_safe
+    projects = projects_for_jump_box(User.current)
+    text = @project.try(:name) || l(:label_jump_to_a_project)
+    trigger = content_tag('span', text, :class => 'drdn-trigger')
+    q = text_field_tag('q', '', :id => 'projects-quick-search', :class => 'autocomplete', :data => {:automcomplete_url => projects_path(:format => 'js')})
+    all = link_to(l(:label_project_all), projects_path(:jump => current_menu_item), :class => (@project.nil? && controller.class.main_menu ? 'selected' : nil))
+    content = content_tag('div',
+          content_tag('div', q, :class => 'quick-search') +
+          content_tag('div', render_projects_for_jump_box(projects, @project), :class => 'drdn-items projects selection') +
+          content_tag('div', all, :class => 'drdn-items all-projects selection'),
+        :class => 'drdn-content'
+      )
 
-      options << project_tree_options_for_select(projects, :selected => @project) do |p|
-        { :value => project_path(:id => p, :jump => current_menu_item) }
-      end
-
-      content_tag( :span, nil, :class => 'jump-box-arrow') +
-      select_tag('project_quick_jump_box', options, :onchange => 'if (this.value != \'\') { window.location = this.value; }')
-    end
+    content_tag('span', trigger + content, :id => "project-jump", :class => "drdn")
   end
 
   def project_tree_options_for_select(projects, options = {})
@@ -371,8 +406,8 @@ module ApplicationHelper
   # Yields the given block for each project with its level in the tree
   #
   # Wrapper for Project#project_tree
-  def project_tree(projects, &block)
-    Project.project_tree(projects, &block)
+  def project_tree(projects, options={}, &block)
+    Project.project_tree(projects, options, &block)
   end
 
   def principals_check_box_tags(name, principals)
@@ -423,7 +458,7 @@ module ApplicationHelper
   end
 
   def html_hours(text)
-    text.gsub(%r{(\d+)\.(\d+)}, '<span class="hours hours-int">\1</span><span class="hours hours-dec">.\2</span>').html_safe
+    text.gsub(%r{(\d+)([\.:])(\d+)}, '<span class="hours hours-int">\1</span><span class="hours hours-dec">\2\3</span>').html_safe
   end
 
   def authoring(created, author, options={})
@@ -440,9 +475,7 @@ module ApplicationHelper
   end
 
   def syntax_highlight_lines(name, content)
-    lines = []
-    syntax_highlight(name, content).each_line { |line| lines << line }
-    lines
+    syntax_highlight(name, content).each_line.to_a
   end
 
   def syntax_highlight(name, content)
@@ -561,6 +594,9 @@ module ApplicationHelper
     css << 'project-' + @project.identifier if @project && @project.identifier.present?
     css << 'controller-' + controller_name
     css << 'action-' + action_name
+    if UserPreference::TEXTAREA_FONT_OPTIONS.include?(User.current.pref.textarea_font)
+      css << "textarea-#{User.current.pref.textarea_font}"
+    end
     css.join(' ')
   end
 
@@ -595,7 +631,13 @@ module ApplicationHelper
 
     text = text.dup
     macros = catch_macros(text)
-    text = Redmine::WikiFormatting.to_html(Setting.text_formatting, text, :object => obj, :attribute => attr)
+
+    if options[:formatting] == false
+      text = h(text)
+    else
+      formatting = options[:formatting] || Setting.text_formatting
+      text = Redmine::WikiFormatting.to_html(formatting, text, :object => obj, :attribute => attr)
+    end
 
     @parsed_headings = []
     @heading_anchors = {}
@@ -603,7 +645,7 @@ module ApplicationHelper
 
     parse_sections(text, project, obj, attr, only_path, options)
     text = parse_non_pre_blocks(text, obj, macros) do |text|
-      [:parse_inline_attachments, :parse_wiki_links, :parse_redmine_links].each do |method_name|
+      [:parse_inline_attachments, :parse_hires_images, :parse_wiki_links, :parse_redmine_links].each do |method_name|
         send method_name, text, project, obj, attr, only_path, options
       end
     end
@@ -646,6 +688,15 @@ module ApplicationHelper
       parsed << "</#{tag}>"
     end
     parsed
+  end
+
+  # add srcset attribute to img tags if filename includes @2x, @3x, etc.
+  # to support hires displays
+  def parse_hires_images(text, project, obj, attr, only_path, options)
+    text.gsub!(/src="([^"]+@(\dx)\.(bmp|gif|jpg|jpe|jpeg|png))"/i) do |m|
+      filename, dpr = $1, $2
+      m + " srcset=\"#{filename} #{dpr}\""
+    end
   end
 
   def parse_inline_attachments(text, project, obj, attr, only_path, options)
@@ -693,7 +744,7 @@ module ApplicationHelper
           title ||= identifier if page.blank?
         end
 
-        if link_project && link_project.wiki
+        if link_project && link_project.wiki && User.current.allowed_to?(:view_wiki_pages, link_project)
           # extract anchor
           anchor = nil
           if page =~ /^(.+?)\#(.+)$/
@@ -762,8 +813,20 @@ module ApplicationHelper
   #     identifier:version:1.0.0
   #     identifier:source:some/file
   def parse_redmine_links(text, default_project, obj, attr, only_path, options)
-    text.gsub!(%r{<a( [^>]+?)?>(.*?)</a>|([\s\(,\-\[\>]|^)(!)?(([a-z0-9\-_]+):)?(attachment|document|version|forum|news|message|project|commit|source|export)?(((#)|((([a-z0-9\-_]+)\|)?(r)))((\d+)((#note)?-(\d+))?)|(:)([^"\s<>][^\s<>]*?|"[^"]+?"))(?=(?=[[:punct:]][^A-Za-z0-9_/])|,|\s|\]|<|$)}) do |m|
-      tag_content, leading, esc, project_prefix, project_identifier, prefix, repo_prefix, repo_identifier, sep, identifier, comment_suffix, comment_id = $2, $3, $4, $5, $6, $7, $12, $13, $10 || $14 || $20, $16 || $21, $17, $19
+    text.gsub!(LINKS_RE) do |_|
+      tag_content = $~[:tag_content]
+      leading = $~[:leading]
+      esc = $~[:esc]
+      project_prefix = $~[:project_prefix]
+      project_identifier = $~[:project_identifier]
+      prefix = $~[:prefix]
+      repo_prefix = $~[:repo_prefix]
+      repo_identifier = $~[:repo_identifier]
+      sep = $~[:sep1] || $~[:sep2] || $~[:sep3]
+      identifier = $~[:identifier1] || $~[:identifier2]
+      comment_suffix = $~[:comment_suffix]
+      comment_id = $~[:comment_id]
+
       if tag_content
         $&
       else
@@ -898,6 +961,39 @@ module ApplicationHelper
     end
   end
 
+  LINKS_RE =
+      %r{
+            <a( [^>]+?)?>(?<tag_content>.*?)</a>|
+            (?<leading>[\s\(,\-\[\>]|^)
+            (?<esc>!)?
+            (?<project_prefix>(?<project_identifier>[a-z0-9\-_]+):)?
+            (?<prefix>attachment|document|version|forum|news|message|project|commit|source|export)?
+            (
+              (
+                (?<sep1>\#)|
+                (
+                  (?<repo_prefix>(?<repo_identifier>[a-z0-9\-_]+)\|)?
+                  (?<sep2>r)
+                )
+              )
+              (
+                (?<identifier1>\d+)
+                (?<comment_suffix>
+                  (\#note)?
+                  -(?<comment_id>\d+)
+                )?
+              )|
+              (?<sep3>:)
+              (?<identifier2>[^"\s<>][^\s<>]*?|"[^"]+?")
+            )
+            (?=
+              (?=[[:punct:]][^A-Za-z0-9_/])|
+              ,|
+              \s|
+              \]|
+              <|
+              $)
+      }x
   HEADING_RE = /(<h(\d)( [^>]+)?>(.+?)<\/h(\d)>)/i unless const_defined?(:HEADING_RE)
 
   def parse_sections(text, project, obj, attr, only_path, options)
@@ -1006,7 +1102,7 @@ module ApplicationHelper
         div_class = 'toc'
         div_class << ' right' if right_align
         div_class << ' left' if left_align
-        out = "<ul class=\"#{div_class}\"><li>"
+        out = "<ul class=\"#{div_class}\"><li><strong>#{l :label_table_of_contents}</strong></li><li>"
         root = headings.map(&:first).min
         current = root
         started = false
@@ -1159,7 +1255,7 @@ module ApplicationHelper
     end
   end
 
-  def context_menu(url)
+  def context_menu
     unless @context_menu_included
       content_for :header_tags do
         javascript_include_tag('context_menu') +
@@ -1172,7 +1268,7 @@ module ApplicationHelper
       end
       @context_menu_included = true
     end
-    javascript_tag "contextMenuInit('#{ url_for(url) }')"
+    nil
   end
 
   def calendar_for(field_id)

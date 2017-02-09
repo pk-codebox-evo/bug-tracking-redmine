@@ -66,8 +66,7 @@ class IssuesController < ApplicationController
       @issue_count = @query.issue_count
       @issue_pages = Paginator.new @issue_count, @limit, params['page']
       @offset ||= @issue_pages.offset
-      @issues = @query.issues(:include => [:assigned_to, :tracker, :priority, :category, :fixed_version],
-                              :order => sort_clause,
+      @issues = @query.issues(:order => sort_clause,
                               :offset => @offset,
                               :limit => @limit)
       @issue_count_by_group = @query.issue_count_by_group
@@ -93,27 +92,26 @@ class IssuesController < ApplicationController
   end
 
   def show
-    @journals = @issue.journals.
-                  preload(:details).
-                  preload(:user => :email_address).
-                  reorder(:created_on, :id).to_a
-    @journals.each_with_index {|j,i| j.indice = i+1}
-    @journals.reject!(&:private_notes?) unless User.current.allowed_to?(:view_private_notes, @issue.project)
-    Journal.preload_journals_details_custom_fields(@journals)
-    @journals.select! {|journal| journal.notes? || journal.visible_details.any?}
-    @journals.reverse! if User.current.wants_comments_in_reverse_order?
-
+    @journals = @issue.visible_journals_with_index
     @changesets = @issue.changesets.visible.preload(:repository, :user).to_a
-    @changesets.reverse! if User.current.wants_comments_in_reverse_order?
-
     @relations = @issue.relations.select {|r| r.other_issue(@issue) && r.other_issue(@issue).visible? }
-    @allowed_statuses = @issue.new_statuses_allowed_to(User.current)
-    @priorities = IssuePriority.active
-    @time_entry = TimeEntry.new(:issue => @issue, :project => @issue.project)
-    @relation = IssueRelation.new
+
+    if User.current.wants_comments_in_reverse_order?
+      @journals.reverse!
+      @changesets.reverse!
+    end
+
+    if User.current.allowed_to?(:view_time_entries, @project)
+      Issue.load_visible_spent_hours([@issue])
+      Issue.load_visible_total_spent_hours([@issue])
+    end
 
     respond_to do |format|
       format.html {
+        @allowed_statuses = @issue.new_statuses_allowed_to(User.current)
+        @priorities = IssuePriority.active
+        @time_entry = TimeEntry.new(:issue => @issue, :project => @issue.project)
+        @relation = IssueRelation.new
         retrieve_previous_and_next_issue_ids
         render :template => 'issues/show'
       }
@@ -218,24 +216,60 @@ class IssuesController < ApplicationController
       end
     end
 
+    edited_issues = Issue.where(:id => @issues.map(&:id)).to_a
+
+    @values_by_custom_field = {}
+    edited_issues.each do |issue|
+      issue.custom_field_values.each do |c|
+        if c.value_present?
+          @values_by_custom_field[c.custom_field] ||= []
+          @values_by_custom_field[c.custom_field] << issue.id
+        end
+      end
+    end
+
     @allowed_projects = Issue.allowed_target_projects
     if params[:issue]
       @target_project = @allowed_projects.detect {|p| p.id.to_s == params[:issue][:project_id].to_s}
       if @target_project
         target_projects = [@target_project]
+        edited_issues.each {|issue| issue.project = @target_project}
       end
     end
     target_projects ||= @projects
+
+    @trackers = target_projects.map {|p| Issue.allowed_target_trackers(p) }.reduce(:&)
+    if params[:issue]
+      @target_tracker = @trackers.detect {|t| t.id.to_s == params[:issue][:tracker_id].to_s}
+      if @target_tracker
+        edited_issues.each {|issue| issue.tracker = @target_tracker}
+      end
+    end
 
     if @copy
       # Copied issues will get their default statuses
       @available_statuses = []
     else
-      @available_statuses = @issues.map(&:new_statuses_allowed_to).reduce(:&)
+      @available_statuses = edited_issues.map(&:new_statuses_allowed_to).reduce(:&)
     end
-    @custom_fields = @issues.map{|i|i.editable_custom_fields}.reduce(:&)
+    if params[:issue]
+      @target_status = @available_statuses.detect {|t| t.id.to_s == params[:issue][:status_id].to_s}
+      if @target_status
+        edited_issues.each {|issue| issue.status = @target_status}
+      end
+    end
+
+    edited_issues.each do |issue|
+      issue.custom_field_values.each do |c|
+        if c.value_present? && @values_by_custom_field[c.custom_field]
+          @values_by_custom_field[c.custom_field].delete(issue.id)
+        end
+      end
+    end
+    @values_by_custom_field.delete_if {|k,v| v.blank?}
+
+    @custom_fields = edited_issues.map{|i|i.editable_custom_fields}.reduce(:&).select {|field| field.format.bulk_edit_supported}
     @assignables = target_projects.map(&:assignable_users).reduce(:&)
-    @trackers = target_projects.map {|p| Issue.allowed_target_trackers(p) }.reduce(:&)
     @versions = target_projects.map {|p| p.shared_versions.open}.reduce(:&)
     @categories = target_projects.map {|p| p.issue_categories}.reduce(:&)
     if @copy
@@ -243,7 +277,7 @@ class IssuesController < ApplicationController
       @subtasks_present = @issues.detect {|i| !i.leaf?}.present?
     end
 
-    @safe_attributes = @issues.map(&:safe_attribute_names).reduce(:&)
+    @safe_attributes = edited_issues.map(&:safe_attribute_names).reduce(:&)
 
     @issue_params = params[:issue] || {}
     @issue_params[:custom_field_values] ||= {}
@@ -326,21 +360,28 @@ class IssuesController < ApplicationController
 
   def destroy
     raise Unauthorized unless @issues.all?(&:deletable?)
-    @hours = TimeEntry.where(:issue_id => @issues.map(&:id)).sum(:hours).to_f
+
+    # all issues and their descendants are about to be deleted
+    issues_and_descendants_ids = Issue.self_and_descendants(@issues).pluck(:id)
+    time_entries = TimeEntry.where(:issue_id => issues_and_descendants_ids)
+    @hours = time_entries.sum(:hours).to_f
+
     if @hours > 0
       case params[:todo]
       when 'destroy'
         # nothing to do
       when 'nullify'
-        TimeEntry.where(['issue_id IN (?)', @issues]).update_all('issue_id = NULL')
+        time_entries.update_all(:issue_id => nil)
       when 'reassign'
-        reassign_to = @project.issues.find_by_id(params[:reassign_to_id])
+        reassign_to = @project && @project.issues.find_by_id(params[:reassign_to_id])
         if reassign_to.nil?
           flash.now[:error] = l(:error_issue_not_found_in_project)
           return
+        elsif issues_and_descendants_ids.include?(reassign_to.id)
+          flash.now[:error] = l(:error_cannot_reassign_time_entries_to_an_issue_about_to_be_deleted)
+          return
         else
-          TimeEntry.where(['issue_id IN (?)', @issues]).
-            update_all("issue_id = #{reassign_to.id}")
+          time_entries.update_all(:issue_id => reassign_to.id, :project_id => reassign_to.project_id)
         end
       else
         # display the destroy form if it's a user request
@@ -363,7 +404,7 @@ class IssuesController < ApplicationController
   # Overrides Redmine::MenuManager::MenuController::ClassMethods for
   # when the "New issue" tab is enabled
   def current_menu_item
-    if Setting.new_item_menu_tab == '1' && [:new, :create].include?(action_name.to_sym) 
+    if Setting.new_item_menu_tab == '1' && [:new, :create].include?(action_name.to_sym)
       :new_issue
     else
       super
@@ -384,7 +425,7 @@ class IssuesController < ApplicationController
         sort_init(@query.sort_criteria.empty? ? [['id', 'desc']] : @query.sort_criteria)
         sort_update(@query.sortable_columns, 'issues_index_sort')
         limit = 500
-        issue_ids = @query.issue_ids(:order => sort_clause, :limit => (limit + 1), :include => [:assigned_to, :tracker, :priority, :category, :fixed_version])
+        issue_ids = @query.issue_ids(:order => sort_clause, :limit => (limit + 1))
         if (idx = issue_ids.index(@issue.id)) && idx < limit
           if issue_ids.size < 500
             @issue_position = idx + 1
@@ -490,6 +531,9 @@ class IssuesController < ApplicationController
         render_error l(:error_no_default_issue_status)
         return false
       end
+    elsif request.get?
+      render_error :message => l(:error_no_projects_with_tracker_allowed_for_new_issue), :status => 403
+      return false
     end
 
     @priorities = IssuePriority.active
@@ -534,15 +578,18 @@ class IssuesController < ApplicationController
   # Redirects user after a successful issue creation
   def redirect_after_create
     if params[:continue]
-      attrs = {:tracker_id => @issue.tracker, :parent_issue_id => @issue.parent_issue_id}.reject {|k,v| v.nil?}
+      url_params = {}
+      url_params[:issue] = {:tracker_id => @issue.tracker, :parent_issue_id => @issue.parent_issue_id}.reject {|k,v| v.nil?}
+      url_params[:back_url] = params[:back_url].presence
+
       if params[:project_id]
-        redirect_to new_project_issue_path(@issue.project, :issue => attrs)
+        redirect_to new_project_issue_path(@issue.project, url_params)
       else
-        attrs.merge! :project_id => @issue.project_id
-        redirect_to new_issue_path(:issue => attrs)
+        url_params[:issue].merge! :project_id => @issue.project_id
+        redirect_to new_issue_path(url_params)
       end
     else
-      redirect_to issue_path(@issue)
+      redirect_back_or_default issue_path(@issue)
     end
   end
 end

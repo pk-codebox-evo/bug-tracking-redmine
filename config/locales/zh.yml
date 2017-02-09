@@ -134,6 +134,8 @@ zh:
         circular_dependency: "此关联将导致循环依赖"
         cant_link_an_issue_with_a_descendant: "问题不能关联到它的子任务"
         earlier_than_minimum_start_date: "不能早于 %{date} 由于有前置问题"
+        not_a_regexp: "is not a valid regular expression"
+        open_issue_with_closed_parent: "An open issue cannot be attached to a closed parent task"
 
   actionview_instancetag_blank_option: 请选择
 
@@ -732,8 +734,6 @@ zh:
   label_user_mail_option_selected: "收取选中项目的所有通知..."
   label_user_mail_option_none: "不收取任何通知"
   label_user_mail_option_only_my_events: "只收取我跟踪或参与的项目的通知"
-  label_user_mail_option_only_assigned: "只收取指派给我的"
-  label_user_mail_option_only_owner: 只收取由我创建的
   label_user_mail_no_self_notified: "不要发送对我自己提交的修改的通知"
   label_registration_activation_by_email: 通过邮件认证激活帐号
   label_registration_manual_activation: 手动激活帐号
@@ -1199,3 +1199,26 @@ zh:
   label_new_project_issue_tab_enabled: 显示“新建问题”标签
   setting_new_item_menu_tab: 建立新对象条目的项目菜单栏目
   label_new_object_tab_enabled: 显示 "+" 为下拉列表
+  error_no_projects_with_tracker_allowed_for_new_issue: There are no projects with trackers
+    for which you can create an issue
+  field_textarea_font: Font used for text areas
+  label_font_default: Default font
+  label_font_monospace: Monospaced font
+  label_font_proportional: Proportional font
+  setting_timespan_format: Time span format
+  label_table_of_contents: Table of contents
+  setting_commit_logs_formatting: Apply text formatting to commit messages
+  setting_mail_handler_enable_regex_delimiters: Enable regular expressions
+  error_move_of_child_not_possible: 'Subtask %{child} could not be moved to the new
+    project: %{errors}'
+  error_cannot_reassign_time_entries_to_an_issue_about_to_be_deleted: Spent time cannot
+    be reassigned to an issue that is about to be deleted
+  setting_timelog_required_fields: Required fields for time logs
+  label_attribute_of_object: '%{object_name}''s %{name}'
+  label_user_mail_option_only_assigned: Only for things I watch or I am assigned to
+  label_user_mail_option_only_owner: Only for things I watch or I am the owner of
+  warning_fields_cleared_on_bulk_edit: Changes will result in the automatic deletion
+    of values from one or more fields on the selected objects
+  field_updated_by: Updated by
+  field_last_updated_by: Last updated by
+  field_full_width_layout: Full width layout

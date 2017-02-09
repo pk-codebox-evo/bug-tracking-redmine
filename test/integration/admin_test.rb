@@ -30,7 +30,7 @@ class AdminTest < Redmine::IntegrationTest
     log_user("admin", "admin")
     get "/users/new"
     assert_response :success
-    assert_template "users/new"
+
     post "/users",
          :user => { :login => "psmith", :firstname => "Paul",
                     :lastname => "Smith", :mail => "psmith@somenet.foo",
@@ -48,7 +48,7 @@ class AdminTest < Redmine::IntegrationTest
     put "/users/#{user.id}", :id => user.id, :user => { :status => User::STATUS_LOCKED }
     assert_redirected_to "/users/#{ user.id }/edit"
     locked_user = User.try_to_login("psmith", "psmith09")
-    assert_equal nil, locked_user
+    assert_nil locked_user
   end
 
   test "Add a user as an anonymous user should fail" do

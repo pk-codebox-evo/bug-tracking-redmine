@@ -29,6 +29,22 @@ class VersionTest < ActiveSupport::TestCase
     assert_equal 'none', v.sharing
   end
 
+  def test_create_as_default_project_version
+    project = Project.find(1)
+    v = Version.new(:project => project, :name => '1.1',
+                    :default_project_version => '1')
+    assert v.save
+    assert_equal v, project.reload.default_version
+  end
+
+  def test_create_not_as_default_project_version
+    project = Project.find(1)
+    v = Version.new(:project => project, :name => '1.1',
+                    :default_project_version => '0')
+    assert v.save
+    assert_nil project.reload.default_version
+  end
+
   def test_invalid_effective_date_validation
     v = Version.new(:project => Project.find(1), :name => '1.1',
                     :effective_date => '99999-01-01')
@@ -227,12 +243,12 @@ class VersionTest < ActiveSupport::TestCase
 
     # Project 1 now out of the shared scope
     project_1_issue.reload
-    assert_equal nil, project_1_issue.fixed_version,
+    assert_nil project_1_issue.fixed_version,
                 "Fixed version is still set after changing the Version's sharing"
 
     # Project 5 now out of the shared scope
     project_5_issue.reload
-    assert_equal nil, project_5_issue.fixed_version,
+    assert_nil project_5_issue.fixed_version,
                 "Fixed version is still set after changing the Version's sharing"
 
     # Project 2 issue remains

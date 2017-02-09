@@ -19,10 +19,10 @@ require File.expand_path('../../../test_helper', __FILE__)
 
 class SortHelperTest < Redmine::HelperTest
   include SortHelper
-  include Redmine::I18n
   include ERB::Util
 
   def setup
+    super
     @session = nil
     @sort_param = nil
   end

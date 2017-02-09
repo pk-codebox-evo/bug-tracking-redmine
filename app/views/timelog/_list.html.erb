@@ -1,7 +1,7 @@
-<%= form_tag({}) do -%>
+<%= form_tag({}, :data => {:cm_url => time_entries_context_menu_path}) do -%>
 <%= hidden_field_tag 'back_url', url_for(:params => request.query_parameters), :id => nil %>
 <div class="autoscroll">
-<table class="list time-entries">
+<table class="list odd-even time-entries">
 <thead>
   <tr>
     <th class="checkbox hide-when-print">
@@ -31,7 +31,7 @@
       </td>
     </tr>
   <% end %>
-  <tr class="time-entry <%= cycle("odd", "even") %> hascontextmenu">
+  <tr id="time-entry-<%= entry.id %>" class="time-entry <%= cycle("odd", "even") %> hascontextmenu">
     <td class="checkbox hide-when-print"><%= check_box_tag("ids[]", entry.id, false, :id => nil) %></td>
     <%= raw @query.inline_columns.map {|column| "<td class=\"#{column.css_classes}\">#{column_content(column, entry)}</td>"}.join %>
     <td class="buttons">
@@ -60,4 +60,4 @@
 </div>
 <% end -%>
 
-<%= context_menu time_entries_context_menu_path %>
+<%= context_menu %>

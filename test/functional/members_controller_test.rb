@@ -110,11 +110,32 @@ class MembersControllerTest < Redmine::ControllerTest
     assert_match /alert/, response.body, "Alert message not sent"
   end
 
+  def test_edit
+    get :edit, :id => 2
+    assert_response :success
+    assert_select 'input[name=?][value=?][checked=checked]', 'membership[role_ids][]', '2'
+  end
+
+  def test_xhr_edit
+    xhr :get, :edit, :id => 2
+    assert_response :success
+  end
+
   def test_update
     assert_no_difference 'Member.count' do
       put :update, :id => 2, :membership => {:role_ids => [1], :user_id => 3}
     end
     assert_redirected_to '/projects/ecookbook/settings/members'
+  end
+
+  def test_update_locked_member_should_be_allowed
+    User.find(3).lock!
+
+    put :update, :id => 2, :membership => {:role_ids => [1]}
+    assert_response 302
+    member = Member.find(2)
+    assert member.user.locked?
+    assert_equal [1], member.role_ids
   end
 
   def test_update_should_not_add_unmanaged_roles
@@ -155,6 +176,14 @@ class MembersControllerTest < Redmine::ControllerTest
     end
     assert_redirected_to '/projects/ecookbook/settings/members'
     assert !User.find(3).member_of?(Project.find(1))
+  end
+
+  def test_destroy_locked_member_should_be_allowed
+    assert User.find(3).lock!
+
+    assert_difference 'Member.count', -1 do
+      delete :destroy, :id => 2
+    end
   end
 
   def test_destroy_should_fail_with_unmanaged_roles

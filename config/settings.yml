@@ -153,6 +153,8 @@ date_format:
   default: ''
 time_format:
   default: ''
+timespan_format:
+  default: 'decimal'
 user_format:
   default: :firstname_lastname
   format: symbol
@@ -180,6 +182,8 @@ notified_events:
   - issue_updated
 mail_handler_body_delimiters:
   default: ''
+mail_handler_enable_regex_delimiters:
+  default: 0
 mail_handler_excluded_filenames:
   default: ''
 mail_handler_api_enabled:
@@ -232,11 +236,15 @@ sequential_project_identifiers:
 # multiple values accepted, comma separated
 default_users_hide_mail:
   default: 1
+default_users_time_zone:
+  default: ""
 repositories_encodings:
   default: ''
 # encoding used to convert commit logs to UTF-8
 commit_logs_encoding:
   default: 'UTF-8'
+commit_logs_formatting:
+  default: 1
 repository_log_display_limit:
   format: int
   default: 100
@@ -277,3 +285,6 @@ non_working_week_days:
   - '7'
 new_item_menu_tab:
   default: 2
+timelog_required_fields:
+  serialized: true
+  default: []

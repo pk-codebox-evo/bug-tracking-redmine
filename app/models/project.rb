@@ -37,21 +37,21 @@ class Project < ActiveRecord::Base
   has_and_belongs_to_many :trackers, lambda {order(:position)}
   has_many :issues, :dependent => :destroy
   has_many :issue_changes, :through => :issues, :source => :journals
-  has_many :versions, lambda {order("#{Version.table_name}.effective_date DESC, #{Version.table_name}.name DESC")}, :dependent => :destroy
+  has_many :versions, :dependent => :destroy
   belongs_to :default_version, :class_name => 'Version'
   has_many :time_entries, :dependent => :destroy
-  has_many :queries, :class_name => 'IssueQuery', :dependent => :delete_all
+  has_many :queries, :dependent => :delete_all
   has_many :documents, :dependent => :destroy
   has_many :news, lambda {includes(:author)}, :dependent => :destroy
-  has_many :issue_categories, lambda {order("#{IssueCategory.table_name}.name")}, :dependent => :delete_all
-  has_many :boards, lambda {order("position ASC")}, :dependent => :destroy
-  has_one :repository, lambda {where(["is_default = ?", true])}
+  has_many :issue_categories, lambda {order(:name)}, :dependent => :delete_all
+  has_many :boards, lambda {order(:position)}, :dependent => :destroy
+  has_one :repository, lambda {where(:is_default => true)}
   has_many :repositories, :dependent => :destroy
   has_many :changesets, :through => :repository
   has_one :wiki, :dependent => :destroy
   # Custom field for the project issues
   has_and_belongs_to_many :issue_custom_fields,
-                          lambda {order("#{CustomField.table_name}.position")},
+                          lambda {order(:position)},
                           :class_name => 'IssueCustomField',
                           :join_table => "#{table_name_prefix}custom_fields_projects#{table_name_suffix}",
                           :association_foreign_key => 'custom_field_id'
@@ -72,7 +72,7 @@ class Project < ActiveRecord::Base
   validates_uniqueness_of :identifier, :if => Proc.new {|p| p.identifier_changed?}
   validates_length_of :name, :maximum => 255
   validates_length_of :homepage, :maximum => 255
-  validates_length_of :identifier, :in => 1..IDENTIFIER_MAX_LENGTH
+  validates_length_of :identifier, :maximum => IDENTIFIER_MAX_LENGTH
   # downcase letters, digits, dashes but not digits only
   validates_format_of :identifier, :with => /\A(?!\d+$)[a-z0-9\-_]*\z/, :if => Proc.new { |p| p.identifier_changed? }
   # reserved words
@@ -173,15 +173,16 @@ class Project < ActiveRecord::Base
   # Returns a SQL conditions string used to find all projects for which +user+ has the given +permission+
   #
   # Valid options:
-  # * :project => limit the condition to project
-  # * :with_subprojects => limit the condition to project and its subprojects
-  # * :member => limit the condition to the user projects
+  # * :skip_pre_condition => true       don't check that the module is enabled (eg. when the condition is already set elsewhere in the query)
+  # * :project => project               limit the condition to project
+  # * :with_subprojects => true         limit the condition to project and its subprojects
+  # * :member => true                   limit the condition to the user projects
   def self.allowed_to_condition(user, permission, options={})
     perm = Redmine::AccessControl.permission(permission)
     base_statement = (perm && perm.read? ? "#{Project.table_name}.status <> #{Project::STATUS_ARCHIVED}" : "#{Project.table_name}.status = #{Project::STATUS_ACTIVE}")
-    if perm && perm.project_module
+    if !options[:skip_pre_condition] && perm && perm.project_module
       # If the permission belongs to a project module, make sure the module is enabled
-      base_statement << " AND #{Project.table_name}.id IN (SELECT em.project_id FROM #{EnabledModule.table_name} em WHERE em.name='#{perm.project_module}')"
+      base_statement << " AND EXISTS (SELECT 1 AS one FROM #{EnabledModule.table_name} em WHERE em.project_id = #{Project.table_name}.id AND em.name='#{perm.project_module}')"
     end
     if project = options[:project]
       project_statement = project.project_condition(options[:with_subprojects])
@@ -197,14 +198,16 @@ class Project < ActiveRecord::Base
         if role.allowed_to?(permission)
           s = "#{Project.table_name}.is_public = #{connection.quoted_true}"
           if user.id
-            s = "(#{s} AND #{Project.table_name}.id NOT IN (SELECT project_id FROM #{Member.table_name} WHERE user_id = #{user.id}))"
+            group = role.anonymous? ? Group.anonymous : Group.non_member
+            principal_ids = [user.id, group.id].compact
+            s = "(#{s} AND #{Project.table_name}.id NOT IN (SELECT project_id FROM #{Member.table_name} WHERE user_id IN (#{principal_ids.join(',')})))"
           end
           statement_by_role[role] = s
         end
       end
-      user.projects_by_role.each do |role, projects|
-        if role.allowed_to?(permission) && projects.any?
-          statement_by_role[role] = "#{Project.table_name}.id IN (#{projects.collect(&:id).join(',')})"
+      user.project_ids_by_role.each do |role, project_ids|
+        if role.allowed_to?(permission) && project_ids.any?
+          statement_by_role[role] = "#{Project.table_name}.id IN (#{project_ids.join(',')})"
         end
       end
       if statement_by_role.empty?
@@ -348,6 +351,10 @@ class Project < ActiveRecord::Base
     self.status == STATUS_ACTIVE
   end
 
+  def closed?
+    self.status == STATUS_CLOSED
+  end
+
   def archived?
     self.status == STATUS_ARCHIVED
   end
@@ -375,8 +382,12 @@ class Project < ActiveRecord::Base
   # Unarchives the project
   # All its ancestors must be active
   def unarchive
-    return false if ancestors.detect {|a| !a.active?}
-    update_attribute :status, STATUS_ACTIVE
+    return false if ancestors.detect {|a| a.archived?}
+    new_status = STATUS_ACTIVE
+    if parent
+      new_status = parent.status
+    end
+    update_attribute :status, new_status
   end
 
   def close
@@ -498,10 +509,16 @@ class Project < ActiveRecord::Base
   # Adds user as a project member with the default role
   # Used for when a non-admin user creates a project
   def add_default_member(user)
-    role = Role.givable.find_by_id(Setting.new_project_user_role_id.to_i) || Role.givable.first
+    role = self.class.default_member_role
     member = Member.new(:project => self, :principal => user, :roles => [role])
     self.members << member
     member
+  end
+
+	# Default role that is given to non-admin users that
+	# create a project
+  def self.default_member_role
+    Role.givable.find_by_id(Setting.new_project_user_role_id.to_i) || Role.givable.first
   end
 
   # Deletes all project's members
@@ -714,7 +731,17 @@ class Project < ActiveRecord::Base
     'default_version_id'
 
   safe_attributes 'enabled_module_names',
-    :if => lambda {|project, user| project.new_record? || user.allowed_to?(:select_project_modules, project) }
+    :if => lambda {|project, user|
+        if project.new_record?
+          if user.admin?
+            true
+          else
+            default_member_role.has_permission?(:select_project_modules)
+          end
+        else
+          user.allowed_to?(:select_project_modules, project)
+        end
+      }
 
   safe_attributes 'inherit_members',
     :if => lambda {|project, user| project.parent.nil? || project.parent.visible?(user)}
@@ -762,7 +789,7 @@ class Project < ActiveRecord::Base
   def copy(project, options={})
     project = project.is_a?(Project) ? project : Project.find(project)
 
-    to_be_copied = %w(wiki versions issue_categories issues members queries boards)
+    to_be_copied = %w(members wiki versions issue_categories issues queries boards)
     to_be_copied = to_be_copied & Array.wrap(options[:only]) unless options[:only].nil?
 
     Project.transaction do
@@ -798,8 +825,11 @@ class Project < ActiveRecord::Base
   end
 
   # Yields the given block for each project with its level in the tree
-  def self.project_tree(projects, &block)
+  def self.project_tree(projects, options={}, &block)
     ancestors = []
+    if options[:init_level] && projects.first
+      ancestors = projects.first.ancestors.to_a
+    end
     projects.sort_by(&:lft).each do |project|
       while (ancestors.any? && !project.is_descendant_of?(ancestors.last))
         ancestors.pop
@@ -823,7 +853,7 @@ class Project < ActiveRecord::Base
   end
 
   def remove_inherited_member_roles
-    member_roles = memberships.map(&:member_roles).flatten
+    member_roles = MemberRole.where(:member_id => membership_ids).to_a
     member_role_ids = member_roles.map(&:id)
     member_roles.each do |member_role|
       if member_role.inherited_from && !member_role_ids.include?(member_role.inherited_from)
@@ -1025,12 +1055,12 @@ class Project < ActiveRecord::Base
   # Copies queries from +project+
   def copy_queries(project)
     project.queries.each do |query|
-      new_query = IssueQuery.new
+      new_query = query.class.new
       new_query.attributes = query.attributes.dup.except("id", "project_id", "sort_criteria", "user_id", "type")
       new_query.sort_criteria = query.sort_criteria if query.sort_criteria
       new_query.project = self
       new_query.user_id = query.user_id
-      new_query.role_ids = query.role_ids if query.visibility == IssueQuery::VISIBILITY_ROLES
+      new_query.role_ids = query.role_ids if query.visibility == ::Query::VISIBILITY_ROLES
       self.queries << new_query
     end
   end

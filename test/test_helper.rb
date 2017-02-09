@@ -278,7 +278,13 @@ module Redmine
   end
 
   class HelperTest < ActionView::TestCase
-    
+    include Redmine::I18n
+
+    def setup
+      super
+      User.current = nil
+      ::I18n.locale = 'en'
+    end
   end
 
   class ControllerTest < ActionController::TestCase
@@ -319,9 +325,9 @@ module Redmine
     def log_user(login, password)
       User.anonymous
       get "/login"
-      assert_equal nil, session[:user_id]
+      assert_nil session[:user_id]
       assert_response :success
-      assert_template "account/login"
+
       post "/login", :username => login, :password => password
       assert_equal login, User.find(session[:user_id]).login
     end

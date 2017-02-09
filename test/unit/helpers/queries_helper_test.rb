@@ -19,7 +19,6 @@ require File.expand_path('../../../test_helper', __FILE__)
 
 class QueriesHelperTest < Redmine::HelperTest
   include QueriesHelper
-  include Redmine::I18n
 
   fixtures :projects, :enabled_modules, :users, :members,
            :member_roles, :roles, :trackers, :issue_statuses,
@@ -89,7 +88,7 @@ class QueriesHelperTest < Redmine::HelperTest
     ]
 
     with_locale 'fr' do
-      csv = query_to_csv(issues, IssueQuery.new, :columns => 'all')
+      csv = query_to_csv(issues, IssueQuery.new(:column_names => ['id', "cf_#{f.id}"]))
       assert_include "Oui", csv
       assert_include "Non", csv
     end

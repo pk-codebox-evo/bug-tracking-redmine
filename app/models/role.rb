@@ -98,6 +98,7 @@ class Role < ActiveRecord::Base
       'users_visibility',
       'time_entries_visibility',
       'all_roles_managed',
+      'managed_role_ids',
       'permissions',
       'permissions_all_trackers',
       'permissions_tracker_ids'
@@ -108,6 +109,7 @@ class Role < ActiveRecord::Base
     role = arg.is_a?(Role) ? arg : Role.find_by_id(arg.to_s)
     self.attributes = role.attributes.dup.except("id", "name", "position", "builtin", "permissions")
     self.permissions = role.permissions.dup
+    self.managed_role_ids = role.managed_role_ids.dup
     self
   end
 
@@ -217,7 +219,7 @@ class Role < ActiveRecord::Base
   end
 
   # Returns true if tracker_id belongs to the list of
-  # trackers for which permission is given 
+  # trackers for which permission is given
   def permissions_tracker_ids?(permission, tracker_id)
     permissions_tracker_ids(permission).include?(tracker_id)
   end
@@ -292,9 +294,9 @@ private
   end
 
   def self.find_or_create_system_role(builtin, name)
-    role = where(:builtin => builtin).first
+    role = unscoped.where(:builtin => builtin).first
     if role.nil?
-      role = create(:name => name) do |r|
+      role = unscoped.create(:name => name) do |r|
         r.builtin = builtin
       end
       raise "Unable to create the #{name} role (#{role.errors.full_messages.join(',')})." if role.new_record?

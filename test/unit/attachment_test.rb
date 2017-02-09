@@ -81,6 +81,18 @@ class AttachmentTest < ActiveSupport::TestCase
     assert_nil a.content_type
   end
 
+  def test_shorted_filename_if_too_long
+    file = mock_file_with_options(:original_filename => "#{'a'*251}.txt")
+
+    a = Attachment.new(:container => Issue.find(1),
+                       :file => file,
+                       :author => User.find(1))
+    assert a.save
+    a.reload
+    assert_equal 12 + 1 + 32 + 4, a.disk_filename.length
+    assert_equal 255, a.filename.length
+  end
+
   def test_copy_should_preserve_attributes
     a = Attachment.find(1)
     copy = a.copy

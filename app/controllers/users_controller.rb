@@ -17,6 +17,7 @@
 
 class UsersController < ApplicationController
   layout 'admin'
+  self.main_menu = false
 
   before_action :require_admin, :except => :show
   before_action :find_user, :only => [:show, :edit, :update, :destroy]
@@ -68,12 +69,12 @@ class UsersController < ApplicationController
     end
 
     # show projects based on current user visibility
-    @memberships = @user.memberships.where(Project.visible_condition(User.current)).to_a
+    @memberships = @user.memberships.preload(:roles, :project).where(Project.visible_condition(User.current)).to_a
 
     respond_to do |format|
       format.html {
         events = Redmine::Activity::Fetcher.new(User.current, :author => @user).events(nil, nil, :limit => 10)
-        @events_by_day = events.group_by(&:event_date)
+        @events_by_day = events.group_by {|event| User.current.time_to_date(event.event_datetime)}
         render :layout => 'base'
       }
       format.api
@@ -132,7 +133,7 @@ class UsersController < ApplicationController
     # Was the account actived ? (do it before User#save clears the change)
     was_activated = (@user.status_change == [User::STATUS_REGISTERED, User::STATUS_ACTIVE])
     # TODO: Similar to My#account
-    @user.pref.attributes = params[:pref] if params[:pref]
+    @user.pref.safe_attributes = params[:pref]
 
     if @user.save
       @user.pref.save
